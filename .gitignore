@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/maps/*.json
+data/maps/*.tmp
+.env
+*.log
+.DS_Store
