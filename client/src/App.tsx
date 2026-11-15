@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MapSummary } from "@shared/model";
 import { findParent } from "@shared/model";
-import { AUTH_REQUIRED_EVENT, api, type Health, subscribeEvents } from "./api";
+import { AUTH_REQUIRED_EVENT, STANDALONE, api, type Health, subscribeEvents } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
 import { NodeActionBar } from "./components/NodeActionBar";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
@@ -12,7 +12,7 @@ import { Toolbar } from "./components/Toolbar";
 import { Inspector } from "./components/Inspector";
 import { AIPanel } from "./components/AIPanel";
 import { NewMapDialog, type NewMapRequest } from "./components/NewMapDialog";
-import { copyOutline, exportJson, exportMarkdown, exportPng } from "./export";
+import { copyOutline, download, exportJson, exportMarkdown, exportPng } from "./export";
 import { getTheme } from "./themes";
 import { useMapEditor } from "./useMapEditor";
 
@@ -328,17 +328,42 @@ export default function App() {
   const importFile = async (file: File) => {
     try {
       const text = await file.text();
-      let created;
+      let created: { id: string; title: string } | undefined;
       if (file.name.endsWith(".json")) {
-        created = await api.createMap({ map: JSON.parse(text) });
+        const data = JSON.parse(text) as { maps?: unknown[] };
+        if (Array.isArray(data.maps)) {
+          // Full backup made with "Back up all maps"
+          for (const m of data.maps) created = await api.createMap({ map: m });
+          await refreshMaps();
+          if (created) setCurrentId(created.id);
+          toast(`Restored ${data.maps.length} map(s) from backup`);
+          return;
+        }
+        created = await api.createMap({ map: data });
       } else {
         created = await api.createMap({ outline: text, title: file.name.replace(/\.[^.]+$/, "") });
       }
       await refreshMaps();
-      setCurrentId(created.id);
-      toast(`Imported "${created.title}"`);
+      if (created) {
+        setCurrentId(created.id);
+        toast(`Imported "${created.title}"`);
+      }
     } catch (e) {
       toast(`Import failed: ${(e as Error).message}`);
+    }
+  };
+
+  const backupAll = async () => {
+    try {
+      await actions.flushSave();
+      const list = await api.listMaps();
+      const all = [];
+      for (const m of list) all.push(await api.getMap(m.id));
+      const stamp = new Date().toISOString().slice(0, 10);
+      download(`mindflow-backup-${stamp}.json`, JSON.stringify({ mindflowBackup: 1, exportedAt: new Date().toISOString(), maps: all }, null, 2), "application/json");
+      toast(`Backed up ${all.length} map(s)`);
+    } catch (e) {
+      toast(`Backup failed: ${(e as Error).message}`);
     }
   };
 
@@ -421,6 +446,8 @@ export default function App() {
         open={drawerOpen}
         onClose={isMobile ? () => setDrawerOpen(false) : undefined}
         install={install}
+        onBackup={() => void backupAll()}
+        standalone={STANDALONE}
         onSignOut={authRequired ? () => void signOut() : undefined}
       />
       <main className="workspace">
@@ -470,6 +497,7 @@ export default function App() {
                   onClose={() => setAiOpen(false)}
                   autoPrompt={autoPrompt}
                   onAutoPromptConsumed={() => setAutoPrompt(null)}
+                  onHealthChange={() => void api.health().then(setHealth)}
                 />
               )}
             </div>

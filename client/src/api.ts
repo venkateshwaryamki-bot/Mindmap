@@ -1,4 +1,11 @@
 import type { MapSummary, MindMap } from "@shared/model";
+import { ApiError, type ChatEvent, type ChatTurn, type Health, type StoreEvent } from "./apiTypes";
+import { localApi, localStreamChat, localSubscribeEvents } from "./backend/local";
+
+export { ApiError, type ChatEvent, type ChatTurn, type Health, type StoreEvent } from "./apiTypes";
+
+/** Built with `npm run build:mobile`: everything runs on the device, no server. */
+export const STANDALONE = import.meta.env.VITE_STANDALONE === "1";
 
 /** Fired when the server says the user must sign in (APP_PASSWORD is set). */
 export const AUTH_REQUIRED_EVENT = "mindflow:auth-required";
@@ -19,21 +26,7 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
-    super(message);
-  }
-}
-
-export interface Health {
-  ok: boolean;
-  ai: boolean;
-  auth?: boolean;
-  model: string;
-  mcp: { http: string; tools: string[] };
-}
-
-export const api = {
+const remoteApi = {
   session: () => fetch("/api/session").then((r) => json<{ required: boolean; signedIn: boolean }>(r)),
   login: (password: string) =>
     fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }).then(
@@ -56,21 +49,7 @@ export const api = {
   deleteMap: (id: string) => fetch(`/api/maps/${id}`, { method: "DELETE" }).then((r) => json<void>(r)),
 };
 
-export type ChatEvent =
-  | { type: "text"; text: string }
-  | { type: "tool_start"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; id: string; name: string; text: string; isError: boolean }
-  | { type: "map"; map: MindMap }
-  | { type: "done"; stopReason: string | null; usage: { input: number; output: number } }
-  | { type: "error"; message: string };
-
-export interface ChatTurn {
-  role: "user" | "assistant";
-  content: string;
-}
-
-/** POST a chat message and stream back ChatEvents (server-sent events over fetch). */
-export async function streamChat(
+async function remoteStreamChat(
   body: { mapId: string; message: string; history: ChatTurn[]; selectedNodeId?: string },
   onEvent: (event: ChatEvent) => void,
   signal?: AbortSignal,
@@ -116,13 +95,7 @@ export async function streamChat(
   }
 }
 
-export type StoreEvent =
-  | { type: "map.created"; map: MindMap }
-  | { type: "map.updated"; map: MindMap }
-  | { type: "map.deleted"; id: string };
-
-/** Subscribe to live store events. Returns an unsubscribe function. */
-export function subscribeEvents(onEvent: (event: StoreEvent) => void, onStatus?: (connected: boolean) => void): () => void {
+function remoteSubscribeEvents(onEvent: (event: StoreEvent) => void, onStatus?: (connected: boolean) => void): () => void {
   const source = new EventSource("/api/events");
   const handler = (e: MessageEvent) => {
     try {
@@ -138,3 +111,9 @@ export function subscribeEvents(onEvent: (event: StoreEvent) => void, onStatus?:
   source.onerror = () => onStatus?.(false);
   return () => source.close();
 }
+
+export type Api = typeof remoteApi;
+
+export const api: Api = STANDALONE ? localApi : remoteApi;
+export const streamChat: typeof remoteStreamChat = STANDALONE ? localStreamChat : remoteStreamChat;
+export const subscribeEvents: typeof remoteSubscribeEvents = STANDALONE ? localSubscribeEvents : remoteSubscribeEvents;

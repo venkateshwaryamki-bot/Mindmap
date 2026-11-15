@@ -12,7 +12,7 @@ import {
   reorderChild,
   updateNode,
 } from "@shared/model";
-import { api, ApiError } from "./api";
+import { api, ApiError, STANDALONE } from "./api";
 
 export interface EditorState {
   map: MindMap | null;
@@ -211,19 +211,32 @@ export function useMapEditor(mapId: string | null, onToast: (message: string) =>
     scheduleSave();
   }, [commit, scheduleSave]);
 
-  // Flush on unload so quick edits are not lost.
+  // Save quickly when the tab closes or the app goes to the background.
   useEffect(() => {
-    const handler = () => {
-      if (dirty.current && mapRef.current) {
-        navigator.sendBeacon?.(
-          `/api/maps/${mapRef.current.id}/beacon`,
-          new Blob([JSON.stringify({ map: mapRef.current })], { type: "application/json" }),
-        );
+    const beacon = () => {
+      if (!dirty.current || !mapRef.current) return;
+      if (STANDALONE) {
+        void flushSave();
+        return;
+      }
+      navigator.sendBeacon?.(
+        `/api/maps/${mapRef.current.id}/beacon`,
+        new Blob([JSON.stringify({ map: mapRef.current })], { type: "application/json" }),
+      );
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        if (STANDALONE) beacon();
+        else void flushSave();
       }
     };
-    window.addEventListener("pagehide", handler);
-    return () => window.removeEventListener("pagehide", handler);
-  }, []);
+    window.addEventListener("pagehide", beacon);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", beacon);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushSave]);
 
   // ---- high level actions ---------------------------------------------------
 

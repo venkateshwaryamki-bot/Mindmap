@@ -8,6 +8,7 @@ import {
   normalizeMap,
   summarize,
 } from "../../shared/src/model.ts";
+import type { MapRepository } from "../../shared/src/repository.ts";
 
 export type StoreEvent =
   | { type: "map.created"; map: MindMap }
@@ -19,7 +20,7 @@ export type StoreEvent =
  * through `update()` which bumps the version and notifies subscribers, so the
  * UI, the MCP server and the in-app Claude assistant always see the same state.
  */
-export class MapStore {
+export class MapStore implements MapRepository {
   private readonly maps = new Map<string, MindMap>();
   private readonly emitter = new EventEmitter();
   private readonly queue = new Map<string, Promise<unknown>>();

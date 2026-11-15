@@ -40,22 +40,26 @@ browser all connect to the same server, so they always show the same maps.
 To use the Claude assistant, open the `.env` file in the folder and paste your key after
 `ANTHROPIC_API_KEY=`, then restart MindFlow.
 
-### 2. Android phone (APK)
+### 2. Android phone (standalone app)
 
-1. On the laptop, MindFlow prints a line like `On your Wi-Fi  http://192.168.1.20:8787`.
-2. On the phone, connected to the **same Wi-Fi**, open that address in Chrome and tap
-   **🤖 Get the Android app (APK)** in the ☰ map list. You can also download
-   `client/public/MindFlow.apk` from this repo.
-3. Open the downloaded file. If Android asks, allow **Install unknown apps** for
-   Chrome or your Files app, then tap **Install**.
-4. Open **MindFlow**, type the Wi-Fi address from step 1 (e.g. `192.168.1.20:8787`)
-   and tap **Connect**. The app remembers it.
+The Android app runs **entirely on the phone**: no laptop, no server, no address to
+type. Maps are saved in the app on your phone and work offline.
 
-The laptop must be on, with MindFlow running, for the phone to reach it. If the phone
-cannot connect, allow Node.js through the laptop's firewall on **private networks**
-(Windows asks the first time MindFlow starts).
+1. Get `MindFlow.apk`: download `client/public/MindFlow.apk` from this repo on the phone
+   (or copy it over from your laptop).
+2. Open it. If Android asks, allow **Install unknown apps** for Chrome or your Files app,
+   then tap **Install** (and **Install anyway** if Play Protect warns about an unknown app).
+3. Open **MindFlow**. The welcome map appears; start mapping.
+4. For the Claude assistant, tap **Claude** → 🔑 and paste your Anthropic API key
+   (from platform.claude.com → API keys). It is stored only on the phone, and Claude
+   needs an internet connection.
 
-On iPhone, open the Wi-Fi address in Safari and use **Share → Add to Home Screen**.
+Maps on the phone and maps on the laptop are separate. To move maps between them, use
+☰ → **💾 Back up all maps** on one device and ☰ → **Import** that file on the other.
+Back up now and then: uninstalling the app deletes its maps.
+
+On iPhone there is no standalone app yet; use the hosted option below and
+**Share → Add to Home Screen** in Safari.
 
 ### 3. Use it from anywhere (optional hosting)
 
@@ -65,8 +69,8 @@ and the Android app at its `https://` address instead.
 1. On [Render](https://render.com), choose **New → Blueprint** and select this repo.
    It reads `render.yaml` (a Docker web service with a 1 GB disk for your maps).
 2. Set `APP_PASSWORD` (required, protects your maps) and `ANTHROPIC_API_KEY`.
-3. Open the `https://…onrender.com` address, sign in, and install as above. In the
-   Android app use ☰ → **Change server** to switch to it.
+3. Open the `https://…onrender.com` address in the laptop and phone browser, sign in,
+   and install it as above.
 
 Any Docker host works too; mount a volume at `/data` so maps survive restarts:
 
@@ -82,8 +86,8 @@ docker run -d -p 8787:8787 -v mindflow-data:/data -e APP_PASSWORD=change-me -e A
   opens details, deletes, and opens Claude.
 - Double-tap a node to rename it. Press and hold a node, then drag, to move it.
 - ☰ opens your maps; ⋯ shows layout, theme, zoom and export.
-- In the Android app, exports are saved to your **Downloads** folder and Back closes
-  open panels.
+- In the Android app, exports and backups are saved to your **Downloads** folder and
+  Back closes open panels.
 
 ## Features
 
@@ -203,13 +207,14 @@ through the versioned store, which broadcasts server-sent events to every open t
 ```
 shared/src/model.ts    tree model, mutations, outline parse/serialise (no deps)
 server/src/store.ts    file-backed store with versioning + change events
-server/src/tools.ts    tool registry (zod schemas) used by MCP and the assistant
 server/src/mcp.ts      MCP server: tools, resources, prompts
 server/src/mcp-stdio.ts stdio entry point
-server/src/ai.ts       streaming Claude tool loop for the in-app assistant
+server/src/ai.ts       server settings for the Claude assistant
 server/src/index.ts    Express: REST, SSE, /mcp, static client
 client/src/            React app (canvas, layout engine, panels, export)
-android/               Android app (WebView shell + bridge), see android/README.md
+android/               standalone Android app (bundled web app + on-device storage)
+shared/src/tools.ts    map tools used by MCP, the server assistant and the phone assistant
+shared/src/assistant.ts Claude tool loop (server and phone)
 ```
 
 ## Scripts
@@ -217,6 +222,7 @@ android/               Android app (WebView shell + bridge), see android/README.
 | Command | What it does |
 |---|---|
 | `npm run app` | Build and start the app (easiest way to run it) |
+| `npm run build:mobile -w client` | Build the standalone web bundle into the Android project |
 | `npm run dev` | Server + client with hot reload |
 | `npm run build` | Build the client, type-check the server |
 | `npm start` | Production server |

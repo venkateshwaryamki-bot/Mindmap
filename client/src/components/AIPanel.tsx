@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MindMap, MindNode } from "@shared/model";
-import { type ChatTurn, type Health, streamChat } from "../api";
+import { type ChatTurn, type Health, STANDALONE, streamChat } from "../api";
+import { getApiKey, setApiKey } from "../backend/local";
 import type { EditorActions } from "../useMapEditor";
 
 interface ToolCall {
@@ -27,6 +28,8 @@ interface Props {
   /** A message to send as soon as the panel mounts (used by "generate with Claude"). */
   autoPrompt?: string | null;
   onAutoPromptConsumed?: () => void;
+  /** Called after the on-device API key changes (standalone app). */
+  onHealthChange?: () => void;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -42,7 +45,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_mindmaps: "Listing maps",
 };
 
-export function AIPanel({ map, selectedNode, actions, health, onClose, autoPrompt, onAutoPromptConsumed }: Props) {
+export function AIPanel({ map, selectedNode, actions, health, onClose, autoPrompt, onAutoPromptConsumed, onHealthChange }: Props) {
+  const [keyEditing, setKeyEditing] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
   const [messagesByMap, setMessagesByMap] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -142,12 +147,68 @@ export function AIPanel({ map, selectedNode, actions, health, onClose, autoPromp
           <span className="sparkle">✦</span> Claude
           {health?.model && <small title="Model">{health.model}</small>}
         </h3>
+        {STANDALONE && (
+          <button
+            type="button"
+            className="icon key-btn"
+            title="Anthropic API key"
+            onClick={() => {
+              setKeyDraft(getApiKey());
+              setKeyEditing((v) => !v);
+            }}
+          >
+            🔑
+          </button>
+        )}
         <button type="button" className="icon" onClick={onClose} title="Close">
           ×
         </button>
       </header>
 
-      {aiOff && (
+      {STANDALONE && (aiOff || keyEditing) && (
+        <form
+          className="key-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setApiKey(keyDraft);
+            setKeyEditing(false);
+            onHealthChange?.();
+          }}
+        >
+          <p>
+            Claude runs from your phone with your own Anthropic API key. Get one at <b>platform.claude.com</b> → API keys, then paste it
+            here. It is stored only on this phone.
+          </p>
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder="sk-ant-…"
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+          <div className="key-actions">
+            {getApiKey() && (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  setApiKey("");
+                  setKeyDraft("");
+                  onHealthChange?.();
+                }}
+              >
+                Remove key
+              </button>
+            )}
+            <button type="submit" className="primary" disabled={!keyDraft.trim()}>
+              Save key
+            </button>
+          </div>
+        </form>
+      )}
+
+      {aiOff && !STANDALONE && (
         <div className="notice">
           Claude is not configured on the server. Add <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart. MCP editing still
           works.

@@ -14,9 +14,11 @@ interface Props {
   onClose?: () => void;
   install?: { canInstall: boolean; iosHint: boolean; onInstall: () => void };
   onSignOut?: () => void;
+  onBackup?: () => void;
+  standalone?: boolean;
 }
 
-export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete, onImport, open, onClose, install, onSignOut }: Props) {
+export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete, onImport, open, onClose, install, onSignOut, onBackup, standalone }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <aside className={`sidebar${open ? " open" : ""}`}>
@@ -89,14 +91,18 @@ export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete,
             To install on iPhone/iPad: tap <b>Share</b> then <b>Add to Home Screen</b>.
           </div>
         )}
+        {onBackup && (
+          <button type="button" className="backup-btn" onClick={onBackup} title="Save every map to one file you can restore with Import">
+            💾 Back up all maps
+          </button>
+        )}
         <div className="foot-row">
-          <span title="MCP endpoint for Claude Desktop / Claude Code">
-            MCP: <code>/mcp</code>
-          </span>
-          {androidBridge() && (
-            <button type="button" className="link" onClick={() => androidBridge()?.changeServer()}>
-              Change server
-            </button>
+          {standalone ? (
+            <span>Maps are saved on this device</span>
+          ) : (
+            <span title="MCP endpoint for Claude Desktop / Claude Code">
+              MCP: <code>/mcp</code>
+            </span>
           )}
           {onSignOut && (
             <button type="button" className="link" onClick={onSignOut}>

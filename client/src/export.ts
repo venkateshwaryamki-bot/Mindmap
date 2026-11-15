@@ -6,8 +6,6 @@ import type { Theme } from "./themes";
 interface AndroidBridge {
   saveFile: (name: string, base64: string, mime: string) => void;
   copyText: (text: string) => void;
-  changeServer: () => void;
-  server: () => string;
 }
 
 /** Present when running inside the MindFlow Android app. */

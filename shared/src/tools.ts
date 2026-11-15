@@ -23,8 +23,8 @@ import {
   walk,
   countNodes,
   pathTo,
-} from "../../shared/src/model.ts";
-import type { MapStore } from "./store.ts";
+} from "./model.ts";
+import type { MapRepository } from "./repository.ts";
 
 export interface ToolResult {
   text: string;
@@ -45,7 +45,7 @@ export interface ToolDefinition<S extends z.ZodObject = z.ZodObject> {
 }
 
 export interface ToolContext {
-  store: MapStore;
+  store: MapRepository;
 }
 
 const mapId = z.string().describe("The mind map id (from list_mindmaps or the UI).");

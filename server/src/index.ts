@@ -17,8 +17,9 @@ import {
 } from "../../shared/src/model.ts";
 import { MapStore, type StoreEvent } from "./store.ts";
 import { createMcpServer } from "./mcp.ts";
-import { MODEL, aiEnabled, runChat, type ChatRequest } from "./ai.ts";
-import { tools } from "./tools.ts";
+import { MODEL, aiEnabled, assistantConfig, runChat, type ChatRequest } from "./ai.ts";
+import { tools } from "../../shared/src/tools.ts";
+import { welcomeMap } from "../../shared/src/welcome.ts";
 import { authEnabled, loginHandler, logoutHandler, requireMcpToken, requireSession, sessionStatus } from "./auth.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -34,45 +35,7 @@ await store.load();
 store.watch();
 
 if (store.list().length === 0) {
-  await store.create(
-    createMap("Welcome to MindFlow", {}, [
-      {
-        text: "Editing",
-        children: [
-          { text: "Tab adds a child" },
-          { text: "Enter adds a sibling" },
-          { text: "Double-click or F2 to rename" },
-          { text: "Drag a node onto another to move it" },
-          { text: "Ctrl+Z / Ctrl+Y undo & redo" },
-        ],
-      },
-      {
-        text: "Views",
-        children: [
-          { text: "Mind map, logic chart, org chart" },
-          { text: "Scroll to pan, Ctrl+scroll to zoom" },
-          { text: "Collapse branches with the dot" },
-        ],
-      },
-      {
-        text: "Claude assistant",
-        marker: "✨",
-        children: [
-          { text: "Open the AI panel on the right" },
-          { text: "Select a node and ask to expand it" },
-          { text: "Ask for a critique or summary" },
-        ],
-      },
-      {
-        text: "MCP",
-        marker: "🔌",
-        children: [
-          { text: "Point Claude Desktop or Claude Code at /mcp" },
-          { text: "Edits appear here live" },
-        ],
-      },
-    ]),
-  );
+  await store.create(welcomeMap());
 }
 
 const app = express();
@@ -233,7 +196,7 @@ app.post("/api/ai/chat", (req, res) => {
     return;
   }
 
-  runChat(client, store, request, (event) => res.write(`data: ${JSON.stringify(event)}\n\n`), controller.signal)
+  runChat(client, store, request, (event) => res.write(`data: ${JSON.stringify(event)}\n\n`), controller.signal, assistantConfig)
     .catch((error: unknown) => {
       if (controller.signal.aborted) return;
       let message = "The assistant failed.";

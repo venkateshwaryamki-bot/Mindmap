@@ -10,7 +10,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 import { toOutline } from "../../shared/src/model.ts";
 import type { MapStore } from "./store.ts";
-import { runTool, tools } from "./tools.ts";
+import { runTool, tools } from "../../shared/src/tools.ts";
 
 export const MCP_SERVER_INFO = { name: "mindflow", version: "0.1.0" } as const;
 
