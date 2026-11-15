@@ -15,7 +15,12 @@ export default defineConfig(({ mode }) => {
         // The APK has no manifest, service worker or web icons; drop links to them.
         name: "mindflow-mobile-html",
         transformIndexHtml(html: string) {
-          return mobile ? html.replace(/\s*<link rel="(manifest|icon|apple-touch-icon)"[^>]*>/g, "") : html;
+          if (!mobile) return html;
+          // The Android app already keeps content clear of the status bar, so the page must
+          // not reserve that space again (viewport-fit=cover would double it).
+          return html
+            .replace(/\s*<link rel="(manifest|icon|apple-touch-icon)"[^>]*>/g, "")
+            .replace(", viewport-fit=cover", "");
         },
       },
     ],

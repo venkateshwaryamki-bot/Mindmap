@@ -12,7 +12,7 @@ function baseName(name: string): string {
 
 function makeMap(title: string, root: MindNode, layout: LayoutMode = "mindmap"): MindMap {
   const now = new Date().toISOString();
-  return { id: newId(10), title, root, layout, theme: "classic", version: 1, createdAt: now, updatedAt: now };
+  return { id: newId(10), title, root, layout, theme: "lavender", version: 1, createdAt: now, updatedAt: now };
 }
 
 // ---------------------------------------------------------------- XMind

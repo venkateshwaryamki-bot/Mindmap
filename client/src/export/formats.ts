@@ -1,23 +1,24 @@
 import { type LayoutMode, type MindMap, type MindNode, toOutline, walk } from "@shared/model";
 import type { LayoutResult } from "../layout";
 import type { Theme } from "../themes";
+import type { IconName } from "../components/Icon";
 import { copyText, download, safeFileName } from "./download";
 import { renderSvg } from "./svg";
 import { createZip } from "./zip";
 
 export type ExportFormat = "png" | "jpeg" | "pdf" | "svg" | "html" | "md" | "txt" | "opml" | "xmind" | "json";
 
-export const EXPORT_FORMATS: { id: ExportFormat; label: string; ext: string; hint: string; icon: string }[] = [
-  { id: "png", label: "PNG image", ext: "png", hint: "Sharp image for slides & notes", icon: "🖼️" },
-  { id: "jpeg", label: "JPEG image", ext: "jpg", hint: "Smaller image for chats", icon: "📷" },
-  { id: "pdf", label: "PDF", ext: "pdf", hint: "Print or share, fits A4", icon: "📄" },
-  { id: "svg", label: "SVG", ext: "svg", hint: "Vector, zoom without blur", icon: "✒️" },
-  { id: "html", label: "Web page (HTML)", ext: "html", hint: "Map + collapsible outline", icon: "🌐" },
-  { id: "md", label: "Markdown", ext: "md", hint: "Notion, Obsidian, GitHub", icon: "Ⓜ️" },
-  { id: "txt", label: "Text outline", ext: "txt", hint: "Plain indented text", icon: "📝" },
-  { id: "opml", label: "OPML", ext: "opml", hint: "Workflowy, outliners", icon: "🗂️" },
-  { id: "xmind", label: "XMind", ext: "xmind", hint: "Open in XMind", icon: "🧠" },
-  { id: "json", label: "MindFlow file", ext: "mindflow.json", hint: "Full backup of this map", icon: "💾" },
+export const EXPORT_FORMATS: { id: ExportFormat; label: string; ext: string; hint: string; icon: IconName }[] = [
+  { id: "png", label: "PNG image", ext: "png", hint: "Sharp image for slides & notes", icon: "image" },
+  { id: "jpeg", label: "JPEG image", ext: "jpg", hint: "Smaller image for chats", icon: "image" },
+  { id: "pdf", label: "PDF", ext: "pdf", hint: "Print or share, fits A4", icon: "file" },
+  { id: "svg", label: "SVG", ext: "svg", hint: "Vector, zoom without blur", icon: "edit" },
+  { id: "html", label: "Web page (HTML)", ext: "html", hint: "Map + collapsible outline", icon: "globe" },
+  { id: "md", label: "Markdown", ext: "md", hint: "Notion, Obsidian, GitHub", icon: "markdown" },
+  { id: "txt", label: "Text outline", ext: "txt", hint: "Plain indented text", icon: "note" },
+  { id: "opml", label: "OPML", ext: "opml", hint: "Workflowy, outliners", icon: "outline" },
+  { id: "xmind", label: "XMind", ext: "xmind", hint: "Open in XMind", icon: "layout" },
+  { id: "json", label: "MindFlow file", ext: "mindflow.json", hint: "Full backup of this map", icon: "backup" },
 ];
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

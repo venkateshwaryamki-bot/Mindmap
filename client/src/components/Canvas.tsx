@@ -5,6 +5,8 @@ import { layoutMap, type LayoutResult, type Size } from "../layout";
 import type { Theme } from "../themes";
 import type { EditorActions } from "../useMapEditor";
 import { NodeView } from "./NodeView";
+import { Icon } from "./Icon";
+import { renderSvg } from "../export/svg";
 
 interface Props {
   map: MindMap;
@@ -16,6 +18,9 @@ interface Props {
   viewRef: React.MutableRefObject<CanvasHandle | null>;
   /** Study modes: quiz masks topics until tapped, present hides them until shown. */
   study?: { mode: "quiz" | "present"; visible: Set<string>; onReveal?: (id: string) => void } | null;
+  /** Floating zoom controls (and a map overview on large screens). */
+  controls?: "desktop" | "mobile" | null;
+  onClaude?: () => void;
 }
 
 export interface CanvasHandle {
@@ -36,7 +41,7 @@ interface View {
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2.5;
 
-export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, viewRef, study }: Props) {
+export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, viewRef, study, controls, onClaude }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Map<string, Size>>(new Map());
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
@@ -446,7 +451,65 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
           <small>{drag.target ? "Drop to move here" : "Drag onto a node"}</small>
         </div>
       )}
-      <div className="zoom-badge">{Math.round(view.scale * 100)}%</div>
+      {controls === "desktop" && <Overview map={map} theme={theme} layout={layout} view={view} containerRef={containerRef} onFit={fit} />}
+      {controls && (
+        <div className={`zoom-controls ${controls}`} onPointerDown={(e) => e.stopPropagation()}>
+          {onClaude && (
+            <button type="button" className="zc-ai" onClick={onClaude} aria-label="Claude assistant" title="Claude assistant (Ctrl+K)">
+              <Icon name="sparkles" size={controls === "mobile" ? 22 : 18} />
+            </button>
+          )}
+          <button type="button" onClick={fit} aria-label="Fit to screen" title="Fit to screen (Ctrl+0)">
+            <Icon name="fit" size={18} />
+          </button>
+          <button type="button" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out" title="Zoom out">
+            <Icon name="zoomOut" size={18} />
+          </button>
+          {controls === "desktop" && <span className="zc-pct">{Math.round(view.scale * 100)}%</span>}
+          <button type="button" onClick={() => zoomBy(1.2)} aria-label="Zoom in" title="Zoom in">
+            <Icon name="zoomIn" size={18} />
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Small overview of the whole map with the visible area outlined (large screens). */
+function Overview({
+  map,
+  theme,
+  layout,
+  view,
+  containerRef,
+  onFit,
+}: {
+  map: MindMap;
+  theme: Theme;
+  layout: LayoutResult;
+  view: View;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  onFit: () => void;
+}) {
+  const W = 180;
+  const H = 110;
+  const pad = 30;
+  const { svg, width, height } = useMemo(() => renderSvg(map, layout, theme, { padding: pad }), [map, layout, theme]);
+  const el = containerRef.current;
+  if (!el || !isFinite(layout.bounds.minX)) return null;
+  const s = Math.min(W / width, H / height);
+  const ox = (W - width * s) / 2;
+  const oy = (H - height * s) / 2;
+  const toX = (wx: number) => ox + (wx - layout.bounds.minX + pad) * s;
+  const toY = (wy: number) => oy + (wy - layout.bounds.minY + pad) * s;
+  const vx = toX(-view.x / view.scale);
+  const vy = toY(-view.y / view.scale);
+  const vw = (el.clientWidth / view.scale) * s;
+  const vh = (el.clientHeight / view.scale) * s;
+  return (
+    <button type="button" className="overview" onPointerDown={(e) => e.stopPropagation()} onClick={onFit} title="Fit to screen">
+      <div className="overview-map" style={{ width: width * s, height: height * s, left: ox, top: oy }} dangerouslySetInnerHTML={{ __html: svg.replace(/^<svg /, '<svg width="100%" height="100%" preserveAspectRatio="none" ') }} />
+      <span className="overview-view" style={{ left: Math.max(0, vx), top: Math.max(0, vy), width: Math.min(W, vw), height: Math.min(H, vh) }} />
+    </button>
   );
 }

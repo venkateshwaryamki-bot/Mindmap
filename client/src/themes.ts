@@ -1,7 +1,7 @@
 import type { LineStyle, MapStyle, MindNode, NodeShape, Spacing } from "@shared/model";
 
 /** How a level of topics is drawn. */
-export type TopicStyle = "filled" | "soft" | "outline" | "plain" | "underline";
+export type TopicStyle = "filled" | "soft" | "tint" | "tint-light" | "outline" | "plain" | "underline";
 
 export interface Theme {
   id: string;
@@ -26,6 +26,36 @@ export interface Theme {
 }
 
 export const THEMES: Theme[] = [
+  {
+    id: "lavender",
+    name: "Lavender",
+    dark: false,
+    canvas: "#fbfaff",
+    dots: "#e6e2f6",
+    root: { fill: "#6b4eff", text: "#ffffff" },
+    palette: ["#3b82f6", "#22a35a", "#e8930c", "#e0458e", "#8b5cf6", "#0ea5a4"],
+    branch: "tint",
+    leaf: "tint-light",
+    surface: "#ffffff",
+    ink: "#2b2840",
+    line: "curve",
+    shape: "pill",
+  },
+  {
+    id: "lavender-night",
+    name: "Lavender Night",
+    dark: true,
+    canvas: "#15132a",
+    dots: "#25223f",
+    root: { fill: "#7c5cff", text: "#ffffff" },
+    palette: ["#60a5fa", "#4ade80", "#fbbf24", "#f472b6", "#a78bfa", "#2dd4bf"],
+    branch: "tint",
+    leaf: "tint-light",
+    surface: "#1d1a36",
+    ink: "#ece9ff",
+    line: "curve",
+    shape: "pill",
+  },
   {
     id: "classic",
     name: "Classic",
@@ -225,7 +255,7 @@ export const THEMES: Theme[] = [
 ];
 
 /** Older theme names from earlier versions. */
-const ALIASES: Record<string, string> = { aurora: "classic" };
+const ALIASES: Record<string, string> = { aurora: "lavender" };
 
 export function getTheme(id: string): Theme {
   return THEMES.find((t) => t.id === (ALIASES[id] ?? id)) ?? THEMES[0];
@@ -319,6 +349,18 @@ export function nodeVisual(theme: Theme, style: MapStyle | undefined, node: Mind
       v.text = readableOn(color);
       v.border = color;
       break;
+    case "tint":
+      v.fill = theme.dark ? mix(color, theme.canvas, 0.78) : mix(color, "#ffffff", 0.86);
+      v.text = theme.dark ? mix(color, "#ffffff", 0.45) : mix(color, "#000000", 0.42);
+      v.border = theme.dark ? mix(color, theme.canvas, 0.35) : mix(color, "#ffffff", 0.35);
+      v.borderWidth = 1.8;
+      break;
+    case "tint-light":
+      v.fill = theme.dark ? mix(color, theme.canvas, 0.86) : mix(color, "#ffffff", 0.92);
+      v.text = theme.ink;
+      v.border = theme.dark ? mix(color, theme.canvas, 0.45) : mix(color, "#ffffff", 0.5);
+      v.borderWidth = 1.5;
+      break;
     case "soft":
       v.fill = soft;
       v.text = softText;
@@ -344,7 +386,7 @@ export function nodeVisual(theme: Theme, style: MapStyle | undefined, node: Mind
   }
   if (depth > 0 && shape === "underline") {
     v.fill = "transparent";
-    v.text = level === "filled" || level === "soft" ? (theme.dark ? mix(color, "#ffffff", 0.4) : mix(color, "#000000", 0.25)) : theme.ink;
+    v.text = level === "filled" || level === "soft" || level === "tint" ? (theme.dark ? mix(color, "#ffffff", 0.4) : mix(color, "#000000", 0.25)) : theme.ink;
     v.border = color;
     v.underline = true;
   }
@@ -353,7 +395,7 @@ export function nodeVisual(theme: Theme, style: MapStyle | undefined, node: Mind
     v.padY = depth === 1 ? 6 : 4;
     v.radius = 0;
   } else {
-    v.radius = shape === "pill" ? 999 : shape === "rect" ? 3 : depth === 0 ? 14 : 10;
+    v.radius = shape === "pill" ? (depth === 0 ? 16 : depth === 1 && level === "tint" ? 14 : 999) : shape === "rect" ? 3 : depth === 0 ? 14 : 10;
   }
   if (ts.fill) {
     v.fill = ts.fill;

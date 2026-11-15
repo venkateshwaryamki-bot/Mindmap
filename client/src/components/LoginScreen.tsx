@@ -24,7 +24,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
           }
         }}
       >
-        <img src="/icon.svg" alt="" width={64} height={64} />
+        <span className="brand-mark big" aria-hidden />
         <h1>MindFlow</h1>
         <p>Enter the app password to open your maps.</p>
         <input

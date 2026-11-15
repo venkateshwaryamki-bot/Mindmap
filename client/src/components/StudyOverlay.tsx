@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import type { MindMap, MindNode } from "@shared/model";
 import type { LayoutResult } from "../layout";
+import { Icon } from "./Icon";
 
 export type StudyMode = "present" | "quiz";
 
@@ -26,13 +27,15 @@ interface PresentProps {
   map: MindMap;
   step: number;
   setStep: (n: number) => void;
+  playing: boolean;
+  setPlaying: (p: boolean) => void;
   onExit: () => void;
   focusOn: (ids: string[], maxScale?: number) => void;
   fit: () => void;
   getLayout: () => LayoutResult | null;
 }
 
-export function PresentControls({ map, step, setStep, onExit, focusOn, fit, getLayout }: PresentProps) {
+export function PresentControls({ map, step, setStep, playing, setPlaying, onExit, focusOn, fit, getLayout }: PresentProps) {
   const steps = useMemo(() => presentationSteps(map), [map]);
   const last = steps.length - 1;
 
@@ -46,6 +49,17 @@ export function PresentControls({ map, step, setStep, onExit, focusOn, fit, getL
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, steps.length]);
+
+  // Autoplay
+  useEffect(() => {
+    if (!playing) return;
+    if (step >= last) {
+      setPlaying(false);
+      return;
+    }
+    const t = window.setTimeout(() => setStep(step + 1), 3500);
+    return () => window.clearTimeout(t);
+  }, [playing, step, last, setStep, setPlaying]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,23 +77,28 @@ export function PresentControls({ map, step, setStep, onExit, focusOn, fit, getL
 
   const current = getLayout()?.byId.get(steps[Math.min(step, last)].parent)?.node.text;
   return (
-    <div className="study-bar">
-      <button type="button" className="btn" onClick={onExit}>
-        ✕ Exit
-      </button>
-      <div className="study-info">
-        <strong>{step === 0 ? map.title : current}</strong>
-        <span>
-          Slide {step + 1} of {steps.length}
+    <>
+      <div className="present-top">
+        <span className="present-count">
+          {step + 1} / {steps.length}
         </span>
+        <span className="present-title">{step === 0 ? map.title : current}</span>
+        <button type="button" className="present-btn" onClick={onExit} aria-label="Exit presentation">
+          <Icon name="x" />
+        </button>
       </div>
-      <button type="button" className="btn big" disabled={step === 0} onClick={() => setStep(step - 1)} aria-label="Previous">
-        ◀
-      </button>
-      <button type="button" className="btn big primary" disabled={step >= last} onClick={() => setStep(step + 1)} aria-label="Next">
-        ▶
-      </button>
-    </div>
+      <div className="present-bottom">
+        <button type="button" className="present-btn" disabled={step === 0} onClick={() => setStep(step - 1)} aria-label="Previous">
+          <Icon name="arrowLeft" />
+        </button>
+        <button type="button" className="present-play" onClick={() => (step >= last ? (setStep(0), setPlaying(true)) : setPlaying(!playing))} aria-label={playing ? "Pause" : "Play"}>
+          <Icon name={playing ? "pause" : "play"} size={26} />
+        </button>
+        <button type="button" className="present-btn" disabled={step >= last} onClick={() => setStep(step + 1)} aria-label="Next">
+          <Icon name="arrowRight" />
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -95,11 +114,11 @@ export function QuizControls({ total, revealed, onRevealAll, onReset, onExit }: 
   const done = revealed >= total;
   return (
     <div className="study-bar">
-      <button type="button" className="btn" onClick={onExit}>
-        ✕ Exit
+      <button type="button" className="icon-btn" onClick={onExit} aria-label="Exit quiz">
+        <Icon name="x" />
       </button>
       <div className="study-info">
-        <strong>{done ? "🎉 All recalled!" : "Recall, then tap a card to check"}</strong>
+        <strong>{done ? "🎉 All recalled!" : "Recall it, then tap to check"}</strong>
         <span>
           {revealed} / {total} revealed
         </span>
@@ -108,7 +127,7 @@ export function QuizControls({ total, revealed, onRevealAll, onReset, onExit }: 
         </div>
       </div>
       <button type="button" className="btn" onClick={onReset}>
-        ↺ Hide all
+        <Icon name="quiz" size={16} /> Hide all
       </button>
       <button type="button" className="btn primary" disabled={done} onClick={onRevealAll}>
         Show all

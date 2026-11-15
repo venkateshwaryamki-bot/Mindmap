@@ -9,21 +9,28 @@ export interface SvgOptions {
   padding?: number;
   /** Fill the background with the theme canvas colour (default true). */
   background?: boolean;
+  /** Minimum canvas size, so tiny maps are not blown up in previews. */
+  minWidth?: number;
+  minHeight?: number;
 }
 
 /** Render a laid-out map to a standalone SVG document. */
 export function renderSvg(map: MindMap, layout: LayoutResult, theme: Theme, options: SvgOptions = {}): { svg: string; width: number; height: number } {
   const pad = options.padding ?? 48;
   const { minX, minY, maxX, maxY } = layout.bounds;
-  const width = Math.ceil(maxX - minX + pad * 2);
-  const height = Math.ceil(maxY - minY + pad * 2);
+  const contentW = Math.ceil(maxX - minX + pad * 2);
+  const contentH = Math.ceil(maxY - minY + pad * 2);
+  const width = Math.max(contentW, options.minWidth ?? 0);
+  const height = Math.max(contentH, options.minHeight ?? 0);
+  const offX = (width - contentW) / 2;
+  const offY = (height - contentH) / 2;
   const out: string[] = [];
   out.push(
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
   );
   out.push(`<title>${esc(map.title)}</title>`);
   if (options.background !== false) out.push(`<rect width="100%" height="100%" fill="${theme.canvas}"/>`);
-  out.push(`<g transform="translate(${pad - minX} ${pad - minY})">`);
+  out.push(`<g transform="translate(${pad - minX + offX} ${pad - minY + offY})">`);
 
   for (const e of layout.edges) {
     out.push(`<path d="${e.path}" stroke="${e.color}" stroke-width="${e.width}" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>`);

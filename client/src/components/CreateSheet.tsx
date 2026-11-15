@@ -1,6 +1,7 @@
 import { STRUCTURES, STUDY_TEMPLATES, type Template } from "../templates";
 import { MiniMap } from "./MiniMap";
 import { Sheet } from "./ui";
+import { Icon } from "./Icon";
 
 interface Props {
   open: boolean;
@@ -48,19 +49,19 @@ export function CreateOptions({ onBlank, onMarkdown, onAI, onImport }: Pick<Prop
   return (
     <div className="create-tiles">
       <button type="button" className="create-tile orange" onClick={onBlank}>
-        <span className="tile-icon">＋</span>
+        <span className="tile-icon"><Icon name="plus" size={28} strokeWidth={2.2} /></span>
         <span className="tile-label">Blank mind map</span>
       </button>
       <button type="button" className="create-tile purple" onClick={onAI}>
-        <span className="tile-icon">✨</span>
+        <span className="tile-icon"><Icon name="sparkles" size={28} /></span>
         <span className="tile-label">AI Generation</span>
       </button>
       <button type="button" className="create-tile blue" onClick={onMarkdown}>
-        <span className="tile-icon">Ⓜ️</span>
+        <span className="tile-icon"><Icon name="markdown" size={28} /></span>
         <span className="tile-label">From Markdown / notes</span>
       </button>
       <button type="button" className="create-tile green" onClick={onImport}>
-        <span className="tile-icon">📥</span>
+        <span className="tile-icon"><Icon name="upload" size={28} /></span>
         <span className="tile-label">Import file</span>
         <span className="tile-sub">XMind · OPML · MD · JSON</span>
       </button>
@@ -71,7 +72,7 @@ export function CreateOptions({ onBlank, onMarkdown, onAI, onImport }: Pick<Prop
 export function CreateSheet(props: Props) {
   const { open, onClose } = props;
   return (
-    <Sheet open={open} onClose={onClose} title="Create" wide className="create-sheet">
+    <Sheet open={open} onClose={onClose} title="Create a mind map" wide className="create-sheet">
       <CreateOptions {...props} />
       <TemplateGallery onTemplate={props.onTemplate} />
     </Sheet>

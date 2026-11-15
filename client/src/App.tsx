@@ -5,7 +5,9 @@ import { AUTH_REQUIRED_EVENT, api, type Health, subscribeEvents } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
 import { Library } from "./components/Library";
 import { Editor } from "./components/Editor";
-import { CreateOptions, CreateSheet, TemplateGallery } from "./components/CreateSheet";
+import { CreateSheet } from "./components/CreateSheet";
+import { TemplatesPage } from "./components/TemplatesPage";
+import { Icon, type IconName } from "./components/Icon";
 import { MarkdownDialog } from "./components/MarkdownDialog";
 import { AIGenerateDialog, type AIRequest } from "./components/AIGenerateDialog";
 import { Settings } from "./components/Settings";
@@ -15,13 +17,14 @@ import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 import { usePrefs } from "./prefs";
 import type { Template } from "./templates";
 
-type Route = { name: "home" } | { name: "templates" } | { name: "settings" } | { name: "map"; id: string };
+type Route = { name: "home" } | { name: "templates" } | { name: "search" } | { name: "settings" } | { name: "map"; id: string };
 
 function parseHash(): Route {
   const h = location.hash.replace(/^#\/?/, "");
   if (h.startsWith("map/")) return { name: "map", id: decodeURIComponent(h.slice(4)) };
   if (h === "templates") return { name: "templates" };
   if (h === "settings") return { name: "settings" };
+  if (h === "search") return { name: "search" };
   return { name: "home" };
 }
 
@@ -143,7 +146,7 @@ export default function App() {
   );
 
   const createBlank = () =>
-    void createAndOpen({ outline: "# Main Idea\n- Topic\n- Topic\n- Topic", layout: prefs.defaultLayout, theme: prefs.defaultTheme });
+    void createAndOpen({ outline: "# Main Idea\n- Ideas\n- Goals\n- Action", layout: prefs.defaultLayout, theme: prefs.defaultTheme });
   const createFromTemplate = (t: Template) => void createAndOpen({ outline: t.markdown, layout: t.layout, theme: t.theme, style: t.style });
   const createFromAI = (r: AIRequest) => void createAndOpen({ title: r.title, layout: r.layout, theme: prefs.defaultTheme }, r.prompt);
 
@@ -262,25 +265,76 @@ export default function App() {
       }
     : undefined;
 
-  const nav = (
-    <nav className="app-nav">
-      <button type="button" className={route.name === "home" ? "on" : ""} onClick={() => (route.name === "home" ? setFolder(null) : navigate({ name: "home" }))}>
-        <span className="nav-icon">🏠</span>
-        <span>Home</span>
+  const navItem = (name: Route["name"], icon: IconName, label: string) => (
+    <button
+      type="button"
+      className={route.name === name ? "on" : ""}
+      onClick={() => {
+        if (name === "home") setFolder(null);
+        if (route.name !== name) navigate({ name } as Route);
+      }}
+    >
+      <Icon name={icon} size={22} />
+      <span>{label}</span>
+    </button>
+  );
+
+  const mobileNav = (
+    <nav className="bottom-nav">
+      {navItem("home", "home", "Home")}
+      {navItem("templates", "templates", "Templates")}
+      <button type="button" className="nav-create" onClick={() => setCreateOpen(true)} aria-label="Create">
+        <span>
+          <Icon name="plus" size={26} strokeWidth={2.4} />
+        </span>
       </button>
-      <button type="button" className={route.name === "templates" ? "on" : ""} onClick={() => navigate({ name: "templates" })}>
-        <span className="nav-icon">🧩</span>
-        <span>Templates</span>
-      </button>
-      <button type="button" className="nav-create" onClick={() => setCreateOpen(true)}>
-        <span className="nav-icon">＋</span>
-        <span>Create</span>
-      </button>
-      <button type="button" className={route.name === "settings" ? "on" : ""} onClick={() => navigate({ name: "settings" })}>
-        <span className="nav-icon">⚙️</span>
-        <span>Settings</span>
-      </button>
+      {navItem("search", "search", "Search")}
+      {navItem("settings", "settings", "Settings")}
     </nav>
+  );
+
+  const sidebar = (
+    <aside className="sidebar">
+      <div className="sidebar-brand">
+        <span className="brand-mark" aria-hidden />
+        <span>MindFlow</span>
+      </div>
+      <button type="button" className="btn primary sidebar-new" onClick={() => setCreateOpen(true)}>
+        <Icon name="plus" size={18} strokeWidth={2.4} /> New Map
+      </button>
+      <nav className="side-nav">
+        {navItem("home", "home", "My Maps")}
+        {navItem("templates", "templates", "Templates")}
+        {navItem("search", "search", "Search")}
+        <button type="button" onClick={() => setAiOpen(true)}>
+          <Icon name="sparkles" size={22} />
+          <span>AI Generate</span>
+        </button>
+      </nav>
+      {folders.length > 0 && (
+        <>
+          <div className="side-label">Folders</div>
+          <nav className="side-nav folders">
+            {folders.map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={route.name === "home" && folder === f ? "on" : ""}
+                onClick={() => {
+                  setFolder(f);
+                  if (route.name !== "home") navigate({ name: "home" });
+                }}
+              >
+                <Icon name="folder" size={20} />
+                <span>{f}</span>
+              </button>
+            ))}
+          </nav>
+        </>
+      )}
+      <div className="spacer" />
+      <nav className="side-nav">{navItem("settings", "settings", "Settings")}</nav>
+    </aside>
   );
 
   return (
@@ -305,10 +359,14 @@ export default function App() {
         />
       ) : (
         <div className="shell">
-          {!isMobile && nav}
+          {!isMobile && sidebar}
           <main className="shell-main">
-            {route.name === "home" && (
+            {(route.name === "home" || route.name === "search") && (
               <Library
+                key={route.name}
+                searchMode={route.name === "search"}
+                onTemplates={() => navigate({ name: "templates" })}
+                onAI={() => setAiOpen(true)}
                 maps={maps}
                 prefs={prefs}
                 updatePrefs={updatePrefs}
@@ -324,15 +382,7 @@ export default function App() {
               />
             )}
             {route.name === "templates" && (
-              <div className="page templates-page">
-                <header className="lib-header">
-                  <h1>Templates</h1>
-                </header>
-                <div className="lib-scroll">
-                  <CreateOptions onBlank={createBlank} onMarkdown={() => setMdOpen(true)} onAI={() => setAiOpen(true)} onImport={() => importRef.current?.click()} />
-                  <TemplateGallery onTemplate={createFromTemplate} />
-                </div>
-              </div>
+              <TemplatesPage onTemplate={createFromTemplate} onBlank={createBlank} onAI={() => setAiOpen(true)} onMarkdown={() => setMdOpen(true)} />
             )}
             {route.name === "settings" && (
               <Settings
@@ -347,7 +397,7 @@ export default function App() {
               />
             )}
           </main>
-          {isMobile && nav}
+          {isMobile && mobileNav}
         </div>
       )}
 

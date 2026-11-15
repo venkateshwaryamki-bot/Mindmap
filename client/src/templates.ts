@@ -1,7 +1,10 @@
 import type { LayoutMode, MapStyle } from "@shared/model";
 
+export type TemplateCategory = "Structures" | "Notes" | "Exam" | "Planning" | "Analysis";
+
 export interface Template {
   id: string;
+  category?: TemplateCategory;
   name: string;
   description: string;
   icon: string;
@@ -16,26 +19,27 @@ const topics = (main: string, n = 3) => `# ${main}\n${Array.from({ length: n }, 
 
 /** "Create from type": every structure with starter content. */
 export const STRUCTURES: Template[] = [
-  { id: "s-mindmap", name: "Two-way mind map", description: "Ideas on both sides", icon: "🧠", layout: "mindmap", theme: "classic", markdown: topics("Main Idea", 4) },
-  { id: "s-right", name: "One-way mind map", description: "Logic chart to the right", icon: "➡️", layout: "right", theme: "classic", markdown: topics("Main Idea") },
-  { id: "s-left", name: "Left map", description: "Branches to the left", icon: "⬅️", layout: "left", theme: "pastel", markdown: topics("Main Idea") },
-  { id: "s-org", name: "Organization chart", description: "Top-down hierarchy", icon: "🏢", layout: "down", theme: "bold", markdown: "# Main Idea\n- Topic\n  - Subtopic\n  - Subtopic\n- Topic\n  - Subtopic\n" },
-  { id: "s-tree", name: "Tree chart", description: "Indented list, great for notes", icon: "🌲", layout: "tree", theme: "ocean", markdown: "# Main Idea\n- Topic\n  - Subtopic\n  - Subtopic\n- Topic\n" },
-  { id: "s-timeline", name: "Timeline", description: "Events in order", icon: "⏳", layout: "timeline", theme: "sunset", markdown: "# History\n- Event 1\n  - Detail\n- Event 2\n  - Detail\n- Event 3\n  - Detail\n" },
-  { id: "s-fishbone", name: "Fishbone", description: "Causes of a problem", icon: "🐟", layout: "fishbone", theme: "classic", style: { line: "straight" }, markdown: "# Problem\n- Cause\n  - Reason\n- Cause\n  - Reason\n- Cause\n  - Reason\n- Cause\n  - Reason\n" },
-  { id: "s-brace", name: "Brace map", description: "Whole and its parts", icon: "🦾", layout: "brace", theme: "paper", markdown: "# Main\n- Topic\n  - Topic\n  - Topic\n- Topic\n  - Topic\n  - Topic\n" },
-  { id: "s-radial", name: "Center divergence", description: "Radial burst of ideas", icon: "🌟", layout: "radial", theme: "candy", markdown: topics("Main", 6) },
+  { id: "s-mindmap", name: "Two-way mind map", description: "Ideas on both sides", icon: "🧠", layout: "mindmap", theme: "lavender", markdown: topics("Main Idea", 4) },
+  { id: "s-right", name: "One-way mind map", description: "Logic chart to the right", icon: "➡️", layout: "right", theme: "lavender", markdown: topics("Main Idea") },
+  { id: "s-left", name: "Left map", description: "Branches to the left", icon: "⬅️", layout: "left", theme: "lavender", markdown: topics("Main Idea") },
+  { id: "s-org", name: "Organization chart", description: "Top-down hierarchy", icon: "🏢", layout: "down", theme: "lavender", markdown: "# Main Idea\n- Topic\n  - Subtopic\n  - Subtopic\n- Topic\n  - Subtopic\n" },
+  { id: "s-tree", name: "Tree chart", description: "Indented list, great for notes", icon: "🌲", layout: "tree", theme: "lavender", markdown: "# Main Idea\n- Topic\n  - Subtopic\n  - Subtopic\n- Topic\n" },
+  { id: "s-timeline", name: "Timeline", description: "Events in order", icon: "⏳", layout: "timeline", theme: "lavender", markdown: "# History\n- Event 1\n  - Detail\n- Event 2\n  - Detail\n- Event 3\n  - Detail\n" },
+  { id: "s-fishbone", name: "Fishbone", description: "Causes of a problem", icon: "🐟", layout: "fishbone", theme: "lavender", style: { line: "straight" }, markdown: "# Problem\n- Cause\n  - Reason\n- Cause\n  - Reason\n- Cause\n  - Reason\n- Cause\n  - Reason\n" },
+  { id: "s-brace", name: "Brace map", description: "Whole and its parts", icon: "🦾", layout: "brace", theme: "lavender", markdown: "# Main\n- Topic\n  - Topic\n  - Topic\n- Topic\n  - Topic\n  - Topic\n" },
+  { id: "s-radial", name: "Center divergence", description: "Radial burst of ideas", icon: "🌟", layout: "radial", theme: "lavender", markdown: topics("Main", 6) },
 ];
 
 /** Study templates written for students. */
 export const STUDY_TEMPLATES: Template[] = [
   {
     id: "t-chapter",
+    category: "Notes",
     name: "Chapter notes",
     description: "Concepts, terms, examples, questions",
     icon: "📘",
     layout: "right",
-    theme: "classic",
+    theme: "lavender",
     markdown: `# Chapter title
 > One-line summary of the chapter
 ## 💡 Key concepts
@@ -56,11 +60,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-revision",
+    category: "Exam",
     name: "Exam revision plan",
     description: "Track syllabus with checkboxes",
     icon: "🎯",
     layout: "mindmap",
-    theme: "pastel",
+    theme: "lavender",
     markdown: `# Exam: Subject
 ## 📚 Syllabus
 - [ ] Unit 1
@@ -85,11 +90,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-answer",
+    category: "Exam",
     name: "Answer / essay plan",
     description: "Intro, body dimensions, conclusion",
     icon: "✍️",
     layout: "right",
-    theme: "ocean",
+    theme: "lavender",
     markdown: `# Question
 ## Introduction
 - Define the key term
@@ -111,11 +117,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-current",
+    category: "Exam",
     name: "Current affairs",
     description: "News issue for competitive exams",
     icon: "📰",
     layout: "mindmap",
-    theme: "classic",
+    theme: "lavender",
     markdown: `# News issue
 ## 📍 Why in news
 - Recent development
@@ -135,11 +142,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-cause",
+    category: "Analysis",
     name: "Cause & effect",
     description: "Fishbone of causes",
     icon: "🐟",
     layout: "fishbone",
-    theme: "classic",
+    theme: "lavender",
     style: { line: "straight" },
     markdown: `# Problem / Event
 ## People
@@ -158,11 +166,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-timeline",
+    category: "Analysis",
     name: "History timeline",
     description: "Dates and events in order",
     icon: "🏺",
     layout: "timeline",
-    theme: "sunset",
+    theme: "lavender",
     markdown: `# Topic timeline
 ## Year 1
 - What happened
@@ -177,11 +186,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-compare",
+    category: "Exam",
     name: "Compare & contrast",
     description: "Two ideas side by side",
     icon: "⚖️",
     layout: "mindmap",
-    theme: "bold",
+    theme: "lavender",
     markdown: `# A vs B
 ## Only A
 - Feature
@@ -198,11 +208,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-summary",
+    category: "Notes",
     name: "Book / lecture summary",
     description: "Big idea, points, quotes",
     icon: "🎧",
     layout: "right",
-    theme: "forest",
+    theme: "lavender",
     markdown: `# Title – Author / Lecturer
 ## 🌟 Big idea
 - One sentence
@@ -220,11 +231,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-swot",
+    category: "Planning",
     name: "SWOT analysis",
     description: "Strengths to threats",
     icon: "🧭",
     layout: "radial",
-    theme: "pastel",
+    theme: "lavender",
     markdown: `# SWOT
 ## 💪 Strengths
 - Strength
@@ -238,11 +250,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-formulas",
+    category: "Notes",
     name: "Formula sheet",
     description: "Formulas grouped by topic",
     icon: "📐",
     layout: "tree",
-    theme: "blueprint",
+    theme: "lavender",
     markdown: `# Subject formulas
 ## Topic 1
 - Formula – when to use
@@ -255,11 +268,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-week",
+    category: "Planning",
     name: "Weekly study plan",
     description: "Day-wise tasks to tick off",
     icon: "🗓️",
     layout: "down",
-    theme: "candy",
+    theme: "lavender",
     markdown: `# This week
 ## Mon
 - [ ] Task
@@ -277,11 +291,12 @@ export const STUDY_TEMPLATES: Template[] = [
   },
   {
     id: "t-research",
+    category: "Planning",
     name: "Project / research plan",
     description: "Question, method, sources",
     icon: "🔬",
     layout: "right",
-    theme: "mono",
+    theme: "lavender",
     markdown: `# Research question
 ## Background
 - What is known
@@ -300,4 +315,5 @@ export const STUDY_TEMPLATES: Template[] = [
   },
 ];
 
-export const ALL_TEMPLATES = [...STRUCTURES, ...STUDY_TEMPLATES];
+export const ALL_TEMPLATES: Template[] = [...STRUCTURES.map((t) => ({ ...t, category: "Structures" as const })), ...STUDY_TEMPLATES];
+export const TEMPLATE_CATEGORIES: TemplateCategory[] = ["Structures", "Notes", "Exam", "Planning", "Analysis"];

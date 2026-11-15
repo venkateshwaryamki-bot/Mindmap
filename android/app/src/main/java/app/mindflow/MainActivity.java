@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private static final String START_URL = "https://" + HOST + "/assets/www/index.html";
     private static final int FILE_CHOOSER = 1001;
 
+    private FrameLayout root;
     private WebView webView;
     private WebViewAssetLoader assetLoader;
     private ValueCallback<Uri[]> fileCallback;
@@ -59,8 +60,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#161C2B"));
+        root = new FrameLayout(this);
+        root.setBackgroundColor(Color.parseColor("#FFFFFF"));
         applySystemBarPadding(root);
 
         assetLoader = new WebViewAssetLoader.Builder()
@@ -69,7 +70,7 @@ public class MainActivity extends Activity {
                 .build();
 
         webView = new WebView(this);
-        webView.setBackgroundColor(Color.parseColor("#0F1420"));
+        webView.setBackgroundColor(Color.parseColor("#F6F5FB"));
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -221,10 +222,46 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void setSystemBars(String color, boolean darkIcons) {
+            main.post(() -> applySystemBars(color, darkIcons));
+        }
+
+        @JavascriptInterface
         public void copyText(String text) {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("MindFlow", text));
             toast("Copied");
+        }
+    }
+
+    /** Match the status / navigation bars (and the area behind them) to the app theme. */
+    @SuppressWarnings("deprecation")
+    private void applySystemBars(String color, boolean darkIcons) {
+        int c;
+        try {
+            c = Color.parseColor(color);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        root.setBackgroundColor(c);
+        getWindow().setStatusBarColor(c);
+        getWindow().setNavigationBarColor(c);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                controller.setSystemBarsAppearance(darkIcons ? mask : 0, mask);
+            }
+        } else {
+            View decor = getWindow().getDecorView();
+            int flags = decor.getSystemUiVisibility();
+            if (darkIcons) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            else flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (darkIcons) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                else flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            decor.setSystemUiVisibility(flags);
         }
     }
 

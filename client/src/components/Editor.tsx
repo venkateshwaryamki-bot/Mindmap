@@ -25,6 +25,7 @@ import { NodeToolbar } from "./NodeToolbar";
 import { OutlineView } from "./OutlineView";
 import { PresentControls, QuizControls, presentationSteps, visibleAtStep } from "./StudyOverlay";
 import { type Action, ActionSheet, ConfirmDialog, PromptDialog } from "./ui";
+import { Icon, type IconName } from "./Icon";
 
 interface Props {
   mapId: string;
@@ -41,7 +42,7 @@ interface Props {
 }
 
 type Panel = { kind: "format"; tab: FormatTab; focus?: "sticker" | "note" | null } | { kind: "ai" } | null;
-type Study = { mode: "present"; step: number } | { mode: "quiz"; revealed: Set<string> } | { mode: "flash" } | null;
+type Study = { mode: "present"; step: number; playing: boolean } | { mode: "quiz"; revealed: Set<string> } | { mode: "flash" } | null;
 
 function markdownToInputs(text: string): NodeInput[] {
   const parsed = parseOutline(text);
@@ -64,7 +65,10 @@ export function Editor(props: Props) {
   const { mapId, health, folders, isMobile, toast, onBack, onDuplicate, onHealthChange, autoPrompt, onAutoPromptConsumed } = props;
   const { state, selectedNode, actions } = useMapEditor(mapId, toast);
   const map = state.map;
-  const theme = getTheme(map?.theme ?? "classic");
+  const mapTheme = getTheme(map?.theme ?? "lavender");
+  // In dark mode the default Lavender theme is shown as its night variant (the map keeps its theme).
+  const appDark = props.prefs.appearance === "dark" || (props.prefs.appearance === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const theme = appDark && mapTheme.id === "lavender" ? getTheme("lavender-night") : mapTheme;
   const canvasRef = useRef<CanvasHandle | null>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const lastCopied = useRef<string>("");
@@ -135,27 +139,32 @@ export function Editor(props: Props) {
   };
 
   // ---- menus ------------------------------------------------------------------
-  const studyActions: Action[] = [
-    { label: "Present (step by step)", icon: "▶️", onSelect: () => (setPanel(null), setOutline(false), setStudy({ mode: "present", step: 0 })) },
-    { label: "Quiz yourself (hide & reveal)", icon: "🙈", onSelect: () => (setPanel(null), setOutline(false), setStudy({ mode: "quiz", revealed: new Set() })) },
-    { label: "Flashcards", icon: "🃏", onSelect: () => (setPanel(null), setStudy({ mode: "flash" })) },
-  ];
+  const startStudy = (mode: "present" | "quiz" | "flash") => {
+    setPanel(null);
+    setOutline(false);
+    setStudy(mode === "present" ? { mode, step: 0, playing: false } : mode === "quiz" ? { mode, revealed: new Set() } : { mode });
+  };
 
-  const openStudyMenu = () => setMenu({ title: "Study", actions: studyActions });
+  const tool = (icon: IconName, label: string, onClick: () => void, disabled = false, shortcut?: string, active = false) => (
+    <button type="button" className={`tool${active ? " active" : ""}`} disabled={disabled} onClick={onClick} title={shortcut ? `${label} (${shortcut})` : label}>
+      <Icon name={icon} size={19} />
+      <span>{label}</span>
+    </button>
+  );
 
   const openInsertMenu = () =>
     setMenu({
-      title: "Insert",
+      title: "More tools",
       actions: [
-        { label: "Child topic", icon: "＋", disabled: !selOrRoot, onSelect: () => selOrRoot && actions.addChild(selOrRoot) },
-        { label: "Sibling topic", icon: "⇣", disabled: !sel || sel === map?.root.id, onSelect: () => sel && actions.addSibling(sel) },
-        { label: "Parent topic", icon: "⇡", disabled: !sel || sel === map?.root.id, onSelect: () => sel && actions.addParent(sel) },
-        { label: "Topics from Markdown…", icon: "Ⓜ️", onSelect: () => setMdInsert(true) },
-        { label: "Image", icon: "🖼", disabled: !selOrRoot, onSelect: pickImage },
-        { label: "Paste branch", icon: "📋", disabled: !actions.canPaste() || !selOrRoot, onSelect: () => selOrRoot && actions.paste(selOrRoot) },
+        { label: "Parent topic", icon: "parent", disabled: !sel || sel === map?.root.id, onSelect: () => sel && actions.addParent(sel) },
+        { label: "Topics from Markdown…", icon: "markdown", onSelect: () => setMdInsert(true) },
+        { label: "Paste branch", icon: "paste", disabled: !actions.canPaste() || !selOrRoot, onSelect: () => selOrRoot && actions.paste(selOrRoot) },
+        { label: "Present", icon: "present", onSelect: () => startStudy("present") },
+        { label: "Quiz yourself", icon: "quiz", onSelect: () => startStudy("quiz") },
+        { label: "Flashcards", icon: "cards", onSelect: () => startStudy("flash") },
         {
           label: "Expand with Claude",
-          icon: "✨",
+          icon: "sparkles",
           disabled: !selectedNode,
           onSelect: () => selectedNode && askClaude(`Expand the selected topic "${selectedNode.text}" with 4-6 specific, useful sub-topics.`),
         },
@@ -169,30 +178,57 @@ export function Editor(props: Props) {
     setMenu({
       title: selectedNode.text,
       actions: [
-        { label: "Add parent topic", icon: "⇡", disabled: isRoot, onSelect: () => actions.addParent(id) },
-        { label: "Copy branch", icon: "⧉", onSelect: () => actions.copy(id) && toast("Branch copied") },
-        { label: "Cut branch", icon: "✂️", disabled: isRoot, onSelect: () => actions.cut(id) && toast("Branch cut") },
-        { label: "Paste into this topic", icon: "📋", disabled: !actions.canPaste(), onSelect: () => actions.paste(id) },
-        { label: "Copy as Markdown", icon: "Ⓜ️", onSelect: () => void copyText(toOutline(selectedNode, { withNotes: true })).then(() => toast("Markdown copied")) },
+        { label: "Rename", icon: "rename", onSelect: () => actions.startEditing(id) },
+        { label: "Note", icon: "note", onSelect: () => setPanel({ kind: "format", tab: "topic", focus: "note" }) },
+        { label: "Image", icon: "image", onSelect: pickImage },
+        { label: "Add parent topic", icon: "parent", disabled: isRoot, onSelect: () => actions.addParent(id) },
+        { label: "Expand with Claude", icon: "sparkles", onSelect: () => askClaude(`Expand the selected topic "${selectedNode.text}" with 4-6 specific sub-topics.`) },
+        {
+          label: "Explain with Claude (adds a note)",
+          icon: "bulb",
+          onSelect: () => askClaude(`Write a clear, exam-friendly explanation (3-6 sentences, with one example) of "${selectedNode.text}" and save it as the selected topic's note with update_node.`),
+        },
+        { label: "Copy branch", icon: "copy", onSelect: () => actions.copy(id) && toast("Branch copied") },
+        { label: "Cut branch", icon: "cut", disabled: isRoot, onSelect: () => actions.cut(id) && toast("Branch cut") },
+        { label: "Paste into this topic", icon: "paste", disabled: !actions.canPaste(), onSelect: () => actions.paste(id) },
+        { label: "Copy as Markdown", icon: "markdown", onSelect: () => void copyText(toOutline(selectedNode, { withNotes: true })).then(() => toast("Markdown copied")) },
         {
           label: selectedNode.collapsed ? "Expand branch" : "Collapse branch",
-          icon: selectedNode.collapsed ? "⊕" : "⊖",
+          icon: selectedNode.collapsed ? "expand" : "collapse",
           disabled: !selectedNode.children.length,
           onSelect: () => actions.toggleCollapse(id),
         },
-        { label: "Focus on branch", icon: "🔍", onSelect: () => focusBranch(id) },
-        { label: "Move up", icon: "↑", disabled: isRoot, onSelect: () => actions.reorder(id, -1) },
-        { label: "Move down", icon: "↓", disabled: isRoot, onSelect: () => actions.reorder(id, 1) },
-        { label: "Expand with Claude", icon: "✨", onSelect: () => askClaude(`Expand the selected topic "${selectedNode.text}" with 4-6 specific sub-topics.`) },
-        {
-          label: "Explain with Claude (adds a note)",
-          icon: "💡",
-          onSelect: () => askClaude(`Write a clear, exam-friendly explanation (3-6 sentences, with one example) of "${selectedNode.text}" and save it as the selected topic's note with update_node.`),
-        },
-        { label: "Delete topic", icon: "🗑️", danger: true, disabled: isRoot, onSelect: () => actions.deleteNode(id) },
+        { label: "Focus on branch", icon: "target", onSelect: () => focusBranch(id) },
+        { label: "Move up", icon: "arrowUp", disabled: isRoot, onSelect: () => actions.reorder(id, -1) },
+        { label: "Move down", icon: "arrowDown", disabled: isRoot, onSelect: () => actions.reorder(id, 1) },
+        { label: "Delete topic", icon: "trash", danger: true, disabled: isRoot, onSelect: () => actions.deleteNode(id) },
       ],
     });
   };
+
+  const mapActions = (): Action[] =>
+    map
+      ? [
+          { label: "Rename map", icon: "rename", onSelect: () => setRenaming(true) },
+          { label: map.favorite ? "Remove star" : "Star this map", icon: "star", onSelect: () => actions.setMapMeta({ favorite: !map.favorite }) },
+          {
+            label: map.folder ? `Folder: ${map.folder}` : "Move to folder",
+            icon: "folder",
+            onSelect: () =>
+              setMenu({
+                title: "Move to folder",
+                actions: [
+                  ...folders.filter((f) => f !== map.folder).map((f) => ({ label: f, icon: "folder", onSelect: () => actions.setMapMeta({ folder: f }) })),
+                  ...(map.folder ? [{ label: "Remove from folder", icon: "arrowLeft", onSelect: () => actions.setMapMeta({ folder: undefined }) }] : []),
+                ],
+              }),
+          },
+          { label: "Duplicate map", icon: "copy", onSelect: () => onDuplicate(map.id) },
+          { label: "Delete map", icon: "trash", danger: true, onSelect: () => setConfirmDelete(true) },
+        ]
+      : [];
+
+  const openTitleMenu = () => map && setMenu({ title: map.title, actions: mapActions() });
 
   const openMoreMenu = () => {
     if (!map) return;
@@ -201,30 +237,22 @@ export function Editor(props: Props) {
       actions: [
         ...(isMobile
           ? [
-              { label: "Study: present, quiz, flashcards", icon: "🎓", onSelect: openStudyMenu },
-              { label: "Claude assistant", icon: "✨", onSelect: () => setPanel({ kind: "ai" }) },
+              { label: outline ? "Back to mind map" : "Outline view", icon: "outline", onSelect: () => setOutline((v) => !v) },
+              { label: "Layout & theme", icon: "theme", onSelect: () => setPanel({ kind: "format", tab: "layout" }) },
+              { label: "Export & share", icon: "share", onSelect: () => setExportOpen(true) },
+              { label: "Quiz yourself", icon: "quiz", onSelect: () => startStudy("quiz") },
+              { label: "Flashcards", icon: "cards", onSelect: () => startStudy("flash") },
+              { label: "Claude assistant", icon: "sparkles", onSelect: () => setPanel({ kind: "ai" }) },
+              { label: "Topics from Markdown…", icon: "markdown", onSelect: () => setMdInsert(true) },
             ]
-          : []),
-        { label: "Export (PNG, PDF, Markdown…)", icon: "⤓", onSelect: () => setExportOpen(true) },
-        { label: "Rename map", icon: "✏️", onSelect: () => setRenaming(true) },
-        { label: map.favorite ? "Remove from favorites" : "Add to favorites", icon: "⭐", onSelect: () => actions.setMapMeta({ favorite: !map.favorite }) },
-        {
-          label: map.folder ? `Folder: ${map.folder}` : "Move to folder",
-          icon: "📁",
-          onSelect: () =>
-            setMenu({
-              title: "Move to folder",
-              actions: [
-                ...folders.filter((f) => f !== map.folder).map((f) => ({ label: f, icon: "📁", onSelect: () => actions.setMapMeta({ folder: f }) })),
-                ...(map.folder ? [{ label: "Remove from folder", icon: "↩️", onSelect: () => actions.setMapMeta({ folder: undefined }) }] : []),
-              ],
-            }),
-        },
-        { label: "Duplicate map", icon: "⧉", onSelect: () => onDuplicate(map.id) },
-        { label: "Expand all", icon: "⊕", onSelect: () => actions.replaceMap(setCollapsedAll(map, false)) },
-        { label: "Collapse to main topics", icon: "⊖", onSelect: () => actions.replaceMap(setCollapsedAll(map, true)) },
-        { label: "Fit to screen", icon: "⤢", onSelect: () => canvasRef.current?.fit() },
-        { label: "Delete map", icon: "🗑️", danger: true, onSelect: () => setConfirmDelete(true) },
+          : [
+              { label: "Export & share", icon: "share", onSelect: () => setExportOpen(true) },
+              { label: "Quiz yourself", icon: "quiz", onSelect: () => startStudy("quiz") },
+              { label: "Flashcards", icon: "cards", onSelect: () => startStudy("flash") },
+            ]),
+        { label: "Expand all", icon: "expand", onSelect: () => actions.replaceMap(setCollapsedAll(map, false)) },
+        { label: "Collapse to main topics", icon: "collapse", onSelect: () => actions.replaceMap(setCollapsedAll(map, true)) },
+        ...mapActions(),
       ],
     });
   };
@@ -397,56 +425,73 @@ export function Editor(props: Props) {
   const sidePanelOpen = panel !== null;
 
   return (
-    <div className={`editor${theme.dark ? " dark-canvas" : ""}${study ? " studying" : ""}`}>
+    <div className={`editor${theme.dark ? " dark-canvas" : ""}${study ? " studying" : ""}${study?.mode === "present" ? " presenting" : ""}`}>
       {!study && (
         <header className="editor-top">
-          <button type="button" className="icon-btn ghost" onClick={onBack} aria-label="Back to library">
-            ‹
+          <button type="button" className="icon-btn" onClick={onBack} aria-label="Back to library">
+            <Icon name="back" />
+          </button>
+          <button type="button" className="title-btn" onClick={openTitleMenu} title="Map options">
+            <span className="title-text">{map.title}</span>
+            <Icon name="chevronDown" size={16} />
+            {!isMobile && <span className={`save-dot${state.saving ? " saving" : ""}`} title={state.saving ? "Saving…" : "Saved"} />}
           </button>
           {!isMobile && (
-            <button type="button" className="title-btn" onClick={() => setRenaming(true)} title="Rename">
-              {map.title}
-              <span className={`save-dot${state.saving ? " saving" : ""}`} title={state.saving ? "Saving…" : "Saved"} />
-            </button>
+            <>
+              <button type="button" className="icon-btn" disabled={!state.canUndo} onClick={actions.undo} aria-label="Undo" title="Undo (Ctrl+Z)">
+                <Icon name="undo" />
+              </button>
+              <button type="button" className="icon-btn" disabled={!state.canRedo} onClick={actions.redo} aria-label="Redo" title="Redo (Ctrl+Y)">
+                <Icon name="redo" />
+              </button>
+            </>
           )}
-          <button type="button" className="icon-btn ghost" disabled={!state.canUndo} onClick={actions.undo} aria-label="Undo" title="Undo (Ctrl+Z)">
-            ↶
-          </button>
-          <button type="button" className="icon-btn ghost" disabled={!state.canRedo} onClick={actions.redo} aria-label="Redo" title="Redo (Ctrl+Y)">
-            ↷
-          </button>
           <div className="spacer" />
-          <button type="button" className="icon-btn ghost" onClick={openInsertMenu} aria-label="Insert" title="Insert">
-            ＋
-          </button>
-          <button
-            type="button"
-            className={`icon-btn ghost${panel?.kind === "format" ? " active" : ""}`}
-            onClick={() => setPanel((p) => (p?.kind === "format" ? null : { kind: "format", tab: sel ? "topic" : "map" }))}
-            aria-label="Style"
-            title="Style"
-          >
-            🎨
-          </button>
-          <button type="button" className={`icon-btn ghost${outline ? " active" : ""}`} onClick={() => setOutline((v) => !v)} aria-label="Outline" title="Outline (Ctrl+Shift+O)">
-            ☰
-          </button>
           {!isMobile && (
-            <button type="button" className="icon-btn ghost" onClick={openStudyMenu} aria-label="Study" title="Present, quiz, flashcards">
-              🎓
-            </button>
+            <div className="tool-group">
+              {tool("topic", "Topic", () => sel && sel !== map.root.id && actions.addSibling(sel), !sel || sel === map.root.id, "Enter")}
+              {tool("subtopic", "Subtopic", () => selOrRoot && actions.addChild(selOrRoot), !selOrRoot, "Tab")}
+              {tool("task", "Checkbox", () => sel && actions.updateNode(sel, { task: selectedNode?.task ? null : "todo" }), !sel)}
+              {tool("smile", "Sticker", () => setPanel({ kind: "format", tab: "topic", focus: "sticker" }), !sel)}
+              {tool("note", "Note", () => setPanel({ kind: "format", tab: "topic", focus: "note" }), !sel)}
+              {tool("image", "Image", pickImage, !selOrRoot)}
+              {tool("palette", "Style", () => setPanel((p) => (p?.kind === "format" ? null : { kind: "format", tab: sel ? "topic" : "layout" })), false, undefined, panel?.kind === "format")}
+              {tool("outline", "Outline", () => setOutline((v) => !v), false, "Ctrl+Shift+O", outline)}
+              {tool("more", "More", openInsertMenu)}
+            </div>
           )}
-          <button type="button" className="icon-btn ghost" onClick={() => setExportOpen(true)} aria-label="Export" title="Export (Ctrl+E)">
-            ⤓
-          </button>
-          {!isMobile && (
-            <button type="button" className={`ai-toggle${panel?.kind === "ai" ? " active" : ""}`} onClick={() => setPanel((p) => (p?.kind === "ai" ? null : { kind: "ai" }))} title="Claude (Ctrl+K)">
-              ✦ Claude
-            </button>
+          <div className="spacer" />
+          {isMobile ? (
+            <>
+              <button type="button" className="icon-btn" disabled={!state.canUndo} onClick={actions.undo} aria-label="Undo">
+                <Icon name="undo" />
+              </button>
+              <button type="button" className="icon-btn" disabled={!state.canRedo} onClick={actions.redo} aria-label="Redo">
+                <Icon name="redo" />
+              </button>
+              <button type="button" className="icon-btn" onClick={() => startStudy("present")} aria-label="Present">
+                <Icon name="play" size={18} />
+              </button>
+              <button type="button" className="icon-btn accent-circle" onClick={openMoreMenu} aria-label="More">
+                <Icon name="more" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className={`ai-toggle${panel?.kind === "ai" ? " active" : ""}`} onClick={() => setPanel((p) => (p?.kind === "ai" ? null : { kind: "ai" }))} title="Claude (Ctrl+K)">
+                <Icon name="sparkles" size={17} /> Claude
+              </button>
+              <button type="button" className="btn primary share-btn" onClick={() => setExportOpen(true)} title="Export & share (Ctrl+E)">
+                <Icon name="share" size={17} /> Share
+              </button>
+              <button type="button" className="icon-btn round" onClick={() => startStudy("present")} aria-label="Present" title="Present">
+                <Icon name="play" size={18} />
+              </button>
+              <button type="button" className="icon-btn" onClick={openMoreMenu} aria-label="More" title="More">
+                <Icon name="moreV" />
+              </button>
+            </>
           )}
-          <button type="button" className="icon-btn ghost" onClick={openMoreMenu} aria-label="More">
-            ⋮
-          </button>
         </header>
       )}
 
@@ -461,6 +506,8 @@ export function Editor(props: Props) {
             editingId={state.editingId}
             actions={actions}
             viewRef={canvasRef}
+            controls={study ? null : isMobile ? (sidePanelOpen ? null : "mobile") : "desktop"}
+            onClaude={() => setPanel((p) => (p?.kind === "ai" ? null : { kind: "ai" }))}
             study={
               study && study.mode !== "flash" && studyVisible
                 ? {
@@ -476,17 +523,14 @@ export function Editor(props: Props) {
           />
         )}
 
-        {!study && !outline && (!isMobile || !sidePanelOpen) && (
+        {!study && !outline && isMobile && !sidePanelOpen && (
           <NodeToolbar
             map={map}
             node={selectedNode}
             actions={actions}
             onSticker={() => setPanel({ kind: "format", tab: "topic", focus: "sticker" })}
-            onStyle={() => setPanel({ kind: "format", tab: "topic" })}
-            onImage={pickImage}
-            onNote={() => setPanel({ kind: "format", tab: "topic", focus: "note" })}
+            onStyle={() => setPanel({ kind: "format", tab: selectedNode ? "topic" : "layout" })}
             onMore={openNodeMenu}
-            onClaude={() => setPanel({ kind: "ai" })}
           />
         )}
 
@@ -520,7 +564,9 @@ export function Editor(props: Props) {
           <PresentControls
             map={map}
             step={study.step}
-            setStep={(step) => setStudy({ mode: "present", step })}
+            playing={study.playing}
+            setPlaying={(playing) => setStudy((st) => (st?.mode === "present" ? { ...st, playing } : st))}
+            setStep={(step) => setStudy((st) => (st?.mode === "present" ? { ...st, step } : st))}
             onExit={() => {
               setStudy(null);
               setTimeout(() => canvasRef.current?.fit(), 50);
@@ -571,7 +617,7 @@ export function Editor(props: Props) {
         }}
       />
 
-      <ExportSheet open={exportOpen} onClose={() => setExportOpen(false)} map={map} getLayout={() => canvasRef.current?.getLayout() ?? null} theme={theme} toast={toast} />
+      <ExportSheet open={exportOpen} onClose={() => setExportOpen(false)} map={map} getLayout={() => canvasRef.current?.getLayout() ?? null} theme={mapTheme} toast={toast} />
       <MarkdownDialog
         open={mdInsert}
         onClose={() => setMdInsert(false)}

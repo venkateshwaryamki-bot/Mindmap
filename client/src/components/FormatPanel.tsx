@@ -6,8 +6,9 @@ import { LAYOUT_LABELS } from "./MarkdownDialog";
 import { MiniMap } from "./MiniMap";
 import { StickerPicker } from "./StickerPicker";
 import { Segmented } from "./ui";
+import { Icon } from "./Icon";
 
-export type FormatTab = "topic" | "map";
+export type FormatTab = "topic" | "layout" | "theme";
 
 interface Props {
   map: MindMap;
@@ -52,12 +53,13 @@ export function FormatPanel({ map, node, theme, actions, tab, onTab, onClose, on
           value={tab}
           onChange={onTab}
           options={[
-            { value: "topic", label: "Topic" },
-            { value: "map", label: "Map style" },
+            { value: "topic", label: "Style" },
+            { value: "layout", label: "Layout" },
+            { value: "theme", label: "Theme" },
           ]}
         />
-        <button type="button" className="icon-btn ghost" onClick={onClose} aria-label="Close">
-          ✕
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <Icon name="x" />
         </button>
       </header>
 
@@ -127,7 +129,7 @@ export function FormatPanel({ map, node, theme, actions, tab, onTab, onClose, on
                     </button>
                   ))}
                   <button type="button" className={`chip${node.task ? " on" : ""}`} onClick={() => actions.updateNode(node.id, { task: node.task ? null : "todo" })}>
-                    ☑ Checkbox
+                    <Icon name="task" size={16} /> Checkbox
                   </button>
                 </div>
               </section>
@@ -165,7 +167,7 @@ export function FormatPanel({ map, node, theme, actions, tab, onTab, onClose, on
                 <h4>Image</h4>
                 <div className="row-wrap">
                   <button type="button" className="chip" onClick={onPickImage}>
-                    🖼 {node.image ? "Replace image" : "Add image"}
+                    <Icon name="image" size={16} /> {node.image ? "Replace image" : "Add image"}
                   </button>
                   {node.image && (
                     <button type="button" className="chip danger" onClick={() => actions.updateNode(node.id, { image: null })}>
@@ -176,10 +178,23 @@ export function FormatPanel({ map, node, theme, actions, tab, onTab, onClose, on
               </section>
             </>
           ) : (
-            <p className="muted pad">Select a topic to style it.</p>
+            <p className="muted pad">Select a topic to style it, or use the Layout and Theme tabs for the whole map.</p>
           ))}
 
-        {tab === "map" && (
+        {tab === "theme" && (
+          <section>
+            <div className="theme-grid">
+              {THEMES.map((t) => (
+                <button key={t.id} type="button" className={`theme-card${map.theme === t.id ? " on" : ""}`} onClick={() => actions.setTheme(t.id)}>
+                  <MiniMap preview={preview} layout="mindmap" theme={t.id} />
+                  <span>{t.name}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === "layout" && (
           <>
             <section>
               <h4>Structure</h4>
@@ -188,17 +203,6 @@ export function FormatPanel({ map, node, theme, actions, tab, onTab, onClose, on
                   <button key={l} type="button" className={`structure-card${map.layout === l ? " on" : ""}`} onClick={() => actions.setLayout(l)}>
                     <MiniMap markdown={STRUCTURE_SAMPLE} layout={l} theme={map.theme} style={map.style} />
                     <span>{LAYOUT_LABELS[l]}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-            <section>
-              <h4>Theme</h4>
-              <div className="theme-grid">
-                {THEMES.map((t) => (
-                  <button key={t.id} type="button" className={`theme-card${map.theme === t.id ? " on" : ""}`} onClick={() => actions.setTheme(t.id)}>
-                    <MiniMap preview={preview} layout="right" theme={t.id} />
-                    <span>{t.name}</span>
                   </button>
                 ))}
               </div>

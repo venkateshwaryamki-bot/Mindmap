@@ -48,7 +48,7 @@ function MiniMapImpl({ preview, markdown, map, layout, theme, style, className }
     else if (markdown) m = { ...mapFromOutline(markdown), layout, theme, style };
     else m = previewToMap(preview ?? { root: "Main", branches: [] }, layout, theme, style);
     const result = layoutMap(m, new Map(), t);
-    return renderSvg(m, result, t, { padding: 24 }).svg.replace(/^<svg /, '<svg preserveAspectRatio="xMidYMid meet" ');
+    return renderSvg(m, result, t, { padding: 24, minWidth: 560, minHeight: 340 }).svg.replace(/^<svg /, '<svg preserveAspectRatio="xMidYMid meet" ');
   }, [preview, markdown, map, layout, theme, style]);
   return <div className={`minimap ${className ?? ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }

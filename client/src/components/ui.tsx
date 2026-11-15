@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Icon, type IconName, isIconName } from "./Icon";
 
 /** Bottom sheet on phones, centred dialog on larger screens. */
 export function Sheet({
@@ -38,8 +39,8 @@ export function Sheet({
         {title && (
           <div className="sheet-head">
             <h2>{title}</h2>
-            <button type="button" className="icon-btn ghost" onClick={onClose} aria-label="Close">
-              ✕
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+              <Icon name="x" />
             </button>
           </div>
         )}
@@ -51,7 +52,8 @@ export function Sheet({
 
 export interface Action {
   label: string;
-  icon?: string;
+  /** A line-icon name (or a short emoji). */
+  icon?: IconName | string;
   danger?: boolean;
   disabled?: boolean;
   onSelect: () => void;
@@ -72,7 +74,7 @@ export function ActionSheet({ open, onClose, title, actions }: { open: boolean; 
               a.onSelect();
             }}
           >
-            <span className="action-icon">{a.icon}</span>
+            <span className="action-icon">{a.icon && isIconName(a.icon) ? <Icon name={a.icon} size={20} /> : a.icon}</span>
             {a.label}
           </button>
         ))}

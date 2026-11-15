@@ -113,8 +113,8 @@ every export free.
   notes into a map; expand or explain any topic
 
 **Style**
-- 12 themes (Classic, Charcoal, Ocean, Forest, Sunset, Candy, Pastel, Bold, Mono,
-  Notebook, Blueprint, Night, Neon), curved / elbow / straight branches, five topic
+- 15 themes: Lavender (default) and Lavender Night, plus Classic, Charcoal, Ocean, Forest,
+  Sunset, Candy, Pastel, Bold, Mono, Notebook, Blueprint, Night, Neon, curved / elbow / straight branches, five topic
   shapes, spacing, rainbow branches
 - Per topic: text size, bold, italic, text colour, fill, branch colour, priority 1-6,
   checkbox with progress %, 150+ stickers, images, notes, links
@@ -132,6 +132,7 @@ every export free.
   full backups; "Back up all maps" in one file
 
 **Everywhere**
+- Clean violet design with light and dark mode, line icons, phone bottom bar and laptop sidebar
 - Laptop web app (installable), standalone Android app (works offline, no server),
   MCP server for Claude Desktop / Claude Code, light and dark mode, keyboard shortcuts
 
