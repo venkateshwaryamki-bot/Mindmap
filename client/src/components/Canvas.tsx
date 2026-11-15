@@ -14,6 +14,8 @@ interface Props {
   actions: EditorActions;
   onLayout?: (layout: LayoutResult) => void;
   viewRef: React.MutableRefObject<CanvasHandle | null>;
+  /** Study modes: quiz masks topics until tapped, present hides them until shown. */
+  study?: { mode: "quiz" | "present"; visible: Set<string>; onReveal?: (id: string) => void } | null;
 }
 
 export interface CanvasHandle {
@@ -21,6 +23,8 @@ export interface CanvasHandle {
   zoomBy: (factor: number) => void;
   center: () => void;
   getLayout: () => LayoutResult | null;
+  /** Animate the camera to fit these topics. */
+  focusOn: (ids: string[], maxScale?: number) => void;
 }
 
 interface View {
@@ -32,10 +36,11 @@ interface View {
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2.5;
 
-export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, viewRef }: Props) {
+export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, viewRef, study }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Map<string, Size>>(new Map());
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
+  const [animating, setAnimating] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number; target: string | null } | null>(null);
   const viewState = useRef(view);
   viewState.current = view;
@@ -91,7 +96,23 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
   }, []);
 
   useEffect(() => {
-    viewRef.current = { fit, zoomBy, center, getLayout: () => layoutRef.current };
+    const focusOn = (ids: string[], maxScale = 1.2) => {
+      const el = containerRef.current;
+      const l = layoutRef.current;
+      if (!el) return;
+      const ps = ids.map((id) => l.byId.get(id)).filter((p): p is NonNullable<typeof p> => Boolean(p));
+      if (!ps.length) return;
+      const minX = Math.min(...ps.map((p) => p.x));
+      const minY = Math.min(...ps.map((p) => p.y));
+      const maxX = Math.max(...ps.map((p) => p.x + p.w));
+      const maxY = Math.max(...ps.map((p) => p.y + p.h));
+      const pad = 70;
+      const scale = Math.min(maxScale, Math.max(MIN_SCALE, Math.min(el.clientWidth / (maxX - minX + pad * 2), el.clientHeight / (maxY - minY + pad * 2))));
+      setAnimating(true);
+      setView({ scale, x: el.clientWidth / 2 - ((minX + maxX) / 2) * scale, y: el.clientHeight / 2 - ((minY + maxY) / 2) * scale });
+      window.setTimeout(() => setAnimating(false), 420);
+    };
+    viewRef.current = { fit, zoomBy, center, getLayout: () => layoutRef.current, focusOn };
   }, [fit, zoomBy, center, viewRef]);
 
   // Fit once per map after the first measured layout.
@@ -101,6 +122,15 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
     const t = window.setTimeout(() => {
       fittedFor.current = map.id;
       fit();
+      // Small screens: never open a map too small to read; centre the central topic instead.
+      window.setTimeout(() => {
+        const el = containerRef.current;
+        const root = layoutRef.current.byId.get(map.root.id);
+        if (el && root && el.clientWidth < 700 && viewState.current.scale < 0.5) {
+          const scale = 0.65;
+          setView({ scale, x: el.clientWidth / 2 - (root.x + root.w / 2) * scale, y: el.clientHeight * 0.42 - (root.y + root.h / 2) * scale });
+        }
+      }, 40);
     }, 30);
     return () => window.clearTimeout(t);
   }, [map.id, sizes, fit]);
@@ -334,12 +364,28 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
   };
 
   const dragNode = drag ? findNode(map.root, drag.id) : null;
+  // Stable handler so memoised topics don't re-render on every pan frame.
+  const nodeDownRef = useRef(onNodePointerDown);
+  nodeDownRef.current = onNodePointerDown;
+  const stableNodeDown = useCallback((e: React.PointerEvent, id: string) => nodeDownRef.current(e, id), []);
+  const commitText = useCallback(
+    (id: string, text: string) => {
+      actions.updateNode(id, { text });
+      actions.stopEditing();
+    },
+    [actions],
+  );
 
   return (
     <div
       ref={containerRef}
-      className={`canvas${theme.dark ? " dark" : ""}${drag ? " dragging" : ""}`}
-      style={{ background: theme.canvas, backgroundImage: `radial-gradient(${theme.dots} 1px, transparent 1px)`, backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
+      className={`canvas${theme.dark ? " dark" : ""}${drag ? " dragging" : ""}${animating ? " animating" : ""}`}
+      style={{
+        backgroundColor: theme.canvas,
+        backgroundImage: theme.dots ? `radial-gradient(${theme.dots} 1.2px, transparent 1.2px)` : "none",
+        backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`,
+        backgroundPosition: `${view.x}px ${view.y}px`,
+      }}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
@@ -352,36 +398,45 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
     >
       <div className="world" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
         <svg className="edges" width="1" height="1" style={{ overflow: "visible" }}>
-          {layout.edges.map((edge) => (
-            <path
-              key={edge.to.id}
-              d={edge.path}
-              stroke={edge.color}
-              strokeWidth={edge.to.depth === 1 ? 3 : 2}
-              fill="none"
-              strokeLinecap="round"
-              opacity={0.9}
-            />
-          ))}
+          {layout.edges.map((edge) =>
+            study?.mode === "present" && edge.toId && !study.visible.has(edge.toId) ? null : (
+              <path
+                key={edge.key}
+                d={edge.path}
+                stroke={edge.color}
+                strokeWidth={edge.width}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.92}
+              />
+            ),
+          )}
         </svg>
         {layout.nodes.map((placed) => (
           <NodeView
             key={placed.id}
             placed={placed}
             theme={theme}
-            selected={placed.id === selectedId}
+            selected={placed.id === selectedId && !study}
             editing={placed.id === editingId}
             dropTarget={drag?.target === placed.id}
             dragging={drag?.id === placed.id}
+            study={
+              !study || placed.depth === 0 || study.visible.has(placed.id)
+                ? "normal"
+                : study.mode === "quiz"
+                  ? "masked"
+                  : "hidden"
+            }
             onMeasure={onMeasure}
-            onPointerDown={onNodePointerDown}
-            onDoubleClick={(id) => actions.startEditing(id)}
-            onCommitText={(id, text) => {
-              actions.updateNode(id, { text });
-              actions.stopEditing();
-            }}
-            onCancelEdit={() => actions.stopEditing()}
-            onToggleCollapse={(id) => actions.toggleCollapse(id)}
+            onPointerDown={stableNodeDown}
+            onDoubleClick={actions.startEditing}
+            onCommitText={commitText}
+            onCancelEdit={actions.stopEditing}
+            onToggleCollapse={actions.toggleCollapse}
+            onToggleTask={actions.toggleTask}
+            onReveal={study?.onReveal}
           />
         ))}
       </div>

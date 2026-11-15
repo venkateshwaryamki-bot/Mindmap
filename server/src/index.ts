@@ -8,11 +8,8 @@ import dotenv from "dotenv";
 import Anthropic from "@anthropic-ai/sdk";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
-  type LayoutMode,
   MapError,
-  createMap,
   normalizeMap,
-  parseOutline,
   toOutline,
 } from "../../shared/src/model.ts";
 import { MapStore, type StoreEvent } from "./store.ts";
@@ -20,6 +17,7 @@ import { createMcpServer } from "./mcp.ts";
 import { MODEL, aiEnabled, assistantConfig, runChat, type ChatRequest } from "./ai.ts";
 import { tools } from "../../shared/src/tools.ts";
 import { welcomeMap } from "../../shared/src/welcome.ts";
+import { type CreateMapRequest, mapFromRequest } from "../../shared/src/create.ts";
 import { authEnabled, loginHandler, logoutHandler, requireMcpToken, requireSession, sessionStatus } from "./auth.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -68,17 +66,7 @@ app.get("/api/maps", (_req, res) => {
 app.post(
   "/api/maps",
   asyncRoute(async (req, res) => {
-    const body = (req.body ?? {}) as { title?: string; outline?: string; layout?: LayoutMode; theme?: string; map?: unknown };
-    if (body.map) {
-      const imported = normalizeMap(body.map);
-      imported.id = createMap("x").id; // always a fresh id on import
-      res.status(201).json(await store.create(imported));
-      return;
-    }
-    const parsed = body.outline ? parseOutline(body.outline) : { title: undefined, nodes: [] };
-    const title = body.title?.trim() || parsed.title || "Untitled map";
-    const map = createMap(title, { layout: body.layout, theme: body.theme }, parsed.nodes);
-    res.status(201).json(await store.create(map));
+    res.status(201).json(await store.create(mapFromRequest((req.body ?? {}) as CreateMapRequest)));
   }),
 );
 

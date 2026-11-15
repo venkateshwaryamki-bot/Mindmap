@@ -12,7 +12,8 @@ import {
   type LayoutMode,
   MapError,
   addChildren,
-  createMap,
+  LAYOUTS,
+  mapFromOutline,
   deleteNode,
   findNode,
   moveNode,
@@ -52,8 +53,20 @@ const mapId = z.string().describe("The mind map id (from list_mindmaps or the UI
 const nodeId = z.string().describe("A node id. Ids appear in get_mindmap output as {#id} tags.");
 const outlineDoc =
   "A markdown bullet outline. Use `- ` bullets and indent children by two spaces. " +
-  "An optional `> note` line directly under a bullet becomes that node's note. Example:\n" +
+  "An optional `> note` line directly under a bullet becomes that node's note. " +
+  "`- [ ] item` adds a checkbox, a leading emoji becomes a sticker, `**bold**` makes the label bold. Example:\n" +
   "- Marketing\n  - Social media\n    > Focus on short video\n  - Email\n- Sales";
+
+const layoutField = z
+  .enum(LAYOUTS as [LayoutMode, ...LayoutMode[]])
+  .describe(
+    "Structure: mindmap (two-way), right / left (one-way), down (org chart), tree (indented tree chart), " +
+      "timeline, fishbone (cause and effect), radial (center divergence), brace (brace map).",
+  );
+const themeField = z
+  .string()
+  .max(40)
+  .describe("Colour theme: classic, ocean, forest, sunset, candy, pastel, bold, mono, paper, blueprint, night, neon.");
 
 const colorField = z
   .string()
@@ -111,12 +124,19 @@ export const tools: ToolDefinition[] = [
     schema: z.object({
       title: z.string().min(1).max(200).describe("Central topic / map title."),
       outline: z.string().optional().describe(outlineDoc),
-      layout: z.enum(["mindmap", "right", "down"]).optional().describe("mindmap = balanced both sides (default), right = logic chart, down = org chart."),
+      layout: layoutField.optional(),
+      theme: themeField.optional(),
+      folder: z.string().max(80).optional().describe("Library folder (e.g. the subject)."),
     }),
     mutating: true,
     async run(input, { store }) {
-      const parsed = input.outline ? parseOutline(input.outline) : { nodes: [] };
-      const map = await store.create(createMap(input.title, { layout: input.layout as LayoutMode | undefined }, parsed.nodes));
+      const map = await store.create(
+        mapFromOutline(`# ${input.title}\n${input.outline ?? ""}`, input.title, {
+          layout: input.layout as LayoutMode | undefined,
+          theme: input.theme,
+          folder: input.folder,
+        }),
+      );
       return { text: `Created mind map.\n\n${describeMap(map)}`, map };
     },
   }),
@@ -155,7 +175,8 @@ export const tools: ToolDefinition[] = [
     name: "update_node",
     title: "Update a node",
     description:
-      "Change a node's text, note, marker (emoji), colour, link or collapsed state. Only the fields you pass are changed; pass an empty string to clear note/marker/link/colour.",
+      "Change a node's text, note, sticker (emoji), priority, checkbox, colour, bold, link or collapsed state. " +
+      "Only the fields you pass are changed; pass an empty string to clear note/marker/link/colour.",
     schema: z.object({
       mapId,
       nodeId,
@@ -165,10 +186,16 @@ export const tools: ToolDefinition[] = [
       color: colorField,
       link: z.string().max(2000).optional().describe("URL attached to the node."),
       collapsed: z.boolean().optional().describe("Collapse or expand the node's children."),
+      priority: z.number().int().min(0).max(9).optional().describe("Priority badge 1-9; 0 removes it."),
+      task: z.enum(["todo", "done", "none"]).optional().describe("Checkbox: todo, done, or none to remove it."),
+      bold: z.boolean().optional(),
     }),
     mutating: true,
     async run(input, { store }) {
-      const { mapId: id, nodeId: nid, ...patch } = input;
+      const { mapId: id, nodeId: nid, task, bold, ...rest } = input;
+      const patch: Parameters<typeof updateNode>[2] = { ...rest };
+      if (task) patch.task = task === "none" ? null : task;
+      if (bold !== undefined) patch.textStyle = { bold };
       const map = await store.update(id, (current) => updateNode(current, nid, patch));
       const node = findNode(map.root, nid)!;
       return { text: `Updated node "${node.text}" (#${node.id}).`, map };
@@ -268,8 +295,8 @@ export const tools: ToolDefinition[] = [
     schema: z.object({
       mapId,
       title: z.string().min(1).max(200).optional(),
-      layout: z.enum(["mindmap", "right", "down"]).optional(),
-      theme: z.enum(["aurora", "sunset", "forest", "mono", "candy", "night"]).optional(),
+      layout: layoutField.optional(),
+      theme: themeField.optional(),
     }),
     mutating: true,
     async run(input, { store }) {

@@ -1,26 +1,72 @@
 /**
  * MindFlow shared mind-map model.
  *
- * This module is dependency-free and is imported by both the server (REST + MCP
- * tools + Claude tools) and the browser client, so every structural edit goes
- * through the same code path regardless of who makes it: a person on the canvas,
- * Claude through the in-app assistant, or any MCP client (Claude Desktop, Claude
- * Code, ...).
+ * Dependency-free and imported by the server (REST + MCP + Claude tools), the
+ * browser client and the standalone mobile app, so every structural edit goes
+ * through the same code whoever makes it.
  */
 
-export type LayoutMode = "mindmap" | "right" | "down";
+/** Map structures, as offered on the "Create from type" screen. */
+export type LayoutMode =
+  | "mindmap" // two-way: branches on both sides
+  | "right" // one-way to the right (logic chart)
+  | "left" // one-way to the left
+  | "down" // organization chart
+  | "tree" // indented tree chart
+  | "timeline"
+  | "fishbone"
+  | "radial" // center divergence
+  | "brace"; // brace map
+
+export const LAYOUTS: LayoutMode[] = ["mindmap", "right", "left", "down", "tree", "timeline", "fishbone", "radial", "brace"];
+
+export type LineStyle = "curve" | "elbow" | "straight";
+export type NodeShape = "theme" | "rounded" | "pill" | "rect" | "underline";
+export type Spacing = "compact" | "normal" | "loose";
+export type TextSize = "s" | "m" | "l" | "xl";
+
+/** Map-wide look, edited in the "Map style" panel. */
+export interface MapStyle {
+  line?: LineStyle;
+  shape?: NodeShape;
+  /** Give every main branch its own colour (default true). */
+  rainbow?: boolean;
+  spacing?: Spacing;
+}
+
+export interface NodeImage {
+  /** data: URL (resized on the device) or https URL */
+  src: string;
+  w: number;
+  h: number;
+}
+
+export interface TextStyle {
+  bold?: boolean;
+  italic?: boolean;
+  size?: TextSize;
+  /** Text colour override */
+  color?: string;
+  /** Fill colour override */
+  fill?: string;
+}
 
 export interface MindNode {
   id: string;
   text: string;
-  /** Optional longer note (markdown) shown in the inspector. */
+  /** Longer note (markdown) */
   note?: string;
-  /** Branch colour override as a CSS colour. Inherited by descendants if unset. */
+  /** Branch colour override, inherited by descendants */
   color?: string;
-  /** Emoji / marker shown before the text (e.g. "⭐", "✅", "1️⃣"). */
+  /** Emoji sticker shown before the text */
   marker?: string;
-  /** Optional hyperlink. */
+  /** Priority 1-9, shown as a numbered badge */
+  priority?: number;
+  /** Checkbox: undefined = no checkbox */
+  task?: "todo" | "done";
   link?: string;
+  image?: NodeImage;
+  textStyle?: TextStyle;
   collapsed?: boolean;
   children: MindNode[];
 }
@@ -31,10 +77,19 @@ export interface MindMap {
   root: MindNode;
   layout: LayoutMode;
   theme: string;
-  /** Monotonic version, bumped by the server on every write. */
+  style?: MapStyle;
+  /** Subject folder shown in the library */
+  folder?: string;
+  favorite?: boolean;
+  /** Monotonic version, bumped by the store on every write. */
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MapPreview {
+  root: string;
+  branches: { text: string; color?: string; children: number }[];
 }
 
 export interface MapSummary {
@@ -43,6 +98,15 @@ export interface MapSummary {
   nodeCount: number;
   version: number;
   updatedAt: string;
+  createdAt: string;
+  layout: LayoutMode;
+  theme: string;
+  folder?: string;
+  favorite?: boolean;
+  preview: MapPreview;
+  /** Lower-cased node text, for library search */
+  searchText: string;
+  progress?: { done: number; total: number };
 }
 
 /** Input shape for creating nodes in bulk (ids are assigned by the model). */
@@ -51,7 +115,10 @@ export interface NodeInput {
   note?: string;
   color?: string;
   marker?: string;
+  priority?: number;
+  task?: "todo" | "done";
   link?: string;
+  bold?: boolean;
   children?: NodeInput[];
 }
 
@@ -61,9 +128,7 @@ export interface NodeInput {
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 export function newId(length = 8): string {
   let out = "";
-  for (let i = 0; i < length; i++) {
-    out += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-  }
+  for (let i = 0; i < length; i++) out += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
   return out;
 }
 
@@ -118,6 +183,19 @@ export function pathTo(root: MindNode, id: string): MindNode[] {
   return path;
 }
 
+/** Checkbox progress of a subtree (the node itself included). */
+export function taskProgress(node: MindNode): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
+  for (const { node: n } of walk(node)) {
+    if (n.task) {
+      total++;
+      if (n.task === "done") done++;
+    }
+  }
+  return { done, total };
+}
+
 // ---------------------------------------------------------------------------
 // construction
 
@@ -130,26 +208,32 @@ export function nodeFromInput(input: NodeInput): MindNode {
   if (input.note) node.note = input.note;
   if (input.color) node.color = input.color;
   if (input.marker) node.marker = input.marker;
+  if (input.priority && input.priority >= 1 && input.priority <= 9) node.priority = Math.round(input.priority);
+  if (input.task === "todo" || input.task === "done") node.task = input.task;
   if (input.link) node.link = input.link;
+  if (input.bold) node.textStyle = { bold: true };
   return node;
 }
 
-export function createMap(title: string, options: Partial<Pick<MindMap, "layout" | "theme">> = {}, rootChildren: NodeInput[] = []): MindMap {
+export function createMap(
+  title: string,
+  options: Partial<Pick<MindMap, "layout" | "theme" | "style" | "folder">> = {},
+  rootChildren: NodeInput[] = [],
+): MindMap {
   const now = new Date().toISOString();
-  return {
+  const map: MindMap = {
     id: newId(10),
     title: title.trim() || "Untitled map",
-    root: {
-      id: newId(),
-      text: title.trim() || "Central topic",
-      children: rootChildren.map(nodeFromInput),
-    },
+    root: { id: newId(), text: title.trim() || "Central topic", children: rootChildren.map(nodeFromInput) },
     layout: options.layout ?? "mindmap",
-    theme: options.theme ?? "aurora",
+    theme: options.theme ?? "classic",
     version: 1,
     createdAt: now,
     updatedAt: now,
   };
+  if (options.style) map.style = options.style;
+  if (options.folder) map.folder = options.folder;
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +244,10 @@ export function clone<T>(value: T): T {
 }
 
 export class MapError extends Error {
-  constructor(message: string, public readonly code: "NOT_FOUND" | "INVALID" = "INVALID") {
+  constructor(
+    message: string,
+    public readonly code: "NOT_FOUND" | "INVALID" = "INVALID",
+  ) {
     super(message);
   }
 }
@@ -178,39 +265,93 @@ export function addChildren(map: MindMap, parentId: string, inputs: NodeInput[],
   const at = index === undefined ? parent.children.length : Math.max(0, Math.min(index, parent.children.length));
   parent.children.splice(at, 0, ...created);
   parent.collapsed = false;
+  delete parent.collapsed;
   return { map: next, created };
 }
 
 export function addSibling(map: MindMap, siblingId: string, input: NodeInput, after = true): { map: MindMap; created: MindNode } {
   const parent = findParent(map.root, siblingId);
-  if (!parent) throw new MapError("The root node cannot have siblings");
+  if (!parent) throw new MapError("The central topic cannot have siblings");
   const index = parent.children.findIndex((c) => c.id === siblingId) + (after ? 1 : 0);
   const result = addChildren(map, parent.id, [input], index);
   return { map: result.map, created: result.created[0] };
 }
 
-export type NodePatch = Partial<Pick<MindNode, "text" | "note" | "color" | "marker" | "link" | "collapsed">>;
-
-export function updateNode(map: MindMap, nodeId: string, patch: NodePatch): MindMap {
+/** Add a new parent between a node and its current parent. */
+export function addParent(map: MindMap, nodeId: string, input: NodeInput): { map: MindMap; created: MindNode } {
+  if (nodeId === map.root.id) throw new MapError("The central topic cannot get a parent");
   const next = clone(map);
-  const node = requireNode(next.root, nodeId);
+  const parent = findParent(next.root, nodeId)!;
+  const index = parent.children.findIndex((c) => c.id === nodeId);
+  const created = nodeFromInput(input);
+  created.children = [parent.children[index]];
+  parent.children[index] = created;
+  return { map: next, created };
+}
+
+export interface NodePatch {
+  text?: string;
+  note?: string | null;
+  color?: string | null;
+  marker?: string | null;
+  link?: string | null;
+  priority?: number | null;
+  task?: "todo" | "done" | null;
+  image?: NodeImage | null;
+  /** Fields set to null, "" or false are removed. */
+  textStyle?: { [K in keyof TextStyle]?: TextStyle[K] | null | "" } | null;
+  collapsed?: boolean;
+}
+
+export function applyPatch(node: MindNode, patch: NodePatch): void {
   if (patch.text !== undefined) node.text = patch.text.trim() || node.text;
   for (const key of ["note", "color", "marker", "link"] as const) {
-    if (patch[key] === undefined) continue;
     const value = patch[key];
+    if (value === undefined) continue;
     if (value === null || value === "") delete node[key];
     else node[key] = value;
+  }
+  if (patch.priority !== undefined) {
+    if (!patch.priority) delete node.priority;
+    else node.priority = Math.max(1, Math.min(9, Math.round(patch.priority)));
+  }
+  if (patch.task !== undefined) {
+    if (patch.task === null) delete node.task;
+    else node.task = patch.task;
+  }
+  if (patch.image !== undefined) {
+    if (patch.image === null) delete node.image;
+    else node.image = patch.image;
+  }
+  if (patch.textStyle !== undefined) {
+    if (patch.textStyle === null) delete node.textStyle;
+    else {
+      const merged: TextStyle = { ...(node.textStyle ?? {}) };
+      for (const [k, v] of Object.entries(patch.textStyle) as [keyof TextStyle, unknown][]) {
+        if (v === undefined) continue;
+        if (v === null || v === "" || v === false) delete merged[k];
+        else (merged as Record<string, unknown>)[k] = v;
+      }
+      if (Object.keys(merged).length) node.textStyle = merged;
+      else delete node.textStyle;
+    }
   }
   if (patch.collapsed !== undefined) {
     if (patch.collapsed) node.collapsed = true;
     else delete node.collapsed;
   }
+}
+
+export function updateNode(map: MindMap, nodeId: string, patch: NodePatch): MindMap {
+  const next = clone(map);
+  const node = requireNode(next.root, nodeId);
+  applyPatch(node, patch);
   if (nodeId === next.root.id && patch.text !== undefined) next.title = node.text;
   return next;
 }
 
 export function deleteNode(map: MindMap, nodeId: string): MindMap {
-  if (nodeId === map.root.id) throw new MapError("The root node cannot be deleted");
+  if (nodeId === map.root.id) throw new MapError("The central topic cannot be deleted");
   const next = clone(map);
   const parent = findParent(next.root, nodeId);
   if (!parent) throw new MapError(`Node "${nodeId}" was not found`, "NOT_FOUND");
@@ -219,7 +360,7 @@ export function deleteNode(map: MindMap, nodeId: string): MindMap {
 }
 
 export function moveNode(map: MindMap, nodeId: string, newParentId: string, index?: number): MindMap {
-  if (nodeId === map.root.id) throw new MapError("The root node cannot be moved");
+  if (nodeId === map.root.id) throw new MapError("The central topic cannot be moved");
   if (nodeId === newParentId) throw new MapError("A node cannot be its own parent");
   if (isDescendant(map.root, nodeId, newParentId)) throw new MapError("A node cannot be moved under its own descendant");
   const next = clone(map);
@@ -232,11 +373,11 @@ export function moveNode(map: MindMap, nodeId: string, newParentId: string, inde
   if (oldParent.id === newParent.id && index !== undefined && index > oldIndex) at -= 1;
   at = Math.max(0, Math.min(at, newParent.children.length));
   newParent.children.splice(at, 0, node);
-  newParent.collapsed = false;
+  delete newParent.collapsed;
   return next;
 }
 
-/** Replace a node's children wholesale (used by "regenerate branch"). */
+/** Replace a node's children wholesale (used by "rewrite branch"). */
 export function replaceChildren(map: MindMap, nodeId: string, inputs: NodeInput[]): MindMap {
   const next = clone(map);
   const node = requireNode(next.root, nodeId);
@@ -254,13 +395,47 @@ export function reorderChild(map: MindMap, nodeId: string, delta: number): MindM
   return moveNode(map, nodeId, parent.id, target > index ? target + 1 : target);
 }
 
+/** Outline editing: make a node the last child of its previous sibling. */
+export function indentNode(map: MindMap, nodeId: string): MindMap {
+  const parent = findParent(map.root, nodeId);
+  if (!parent) return map;
+  const index = parent.children.findIndex((c) => c.id === nodeId);
+  if (index <= 0) return map;
+  return moveNode(map, nodeId, parent.children[index - 1].id);
+}
+
+/** Outline editing: move a node out to follow its parent. */
+export function outdentNode(map: MindMap, nodeId: string): MindMap {
+  const parent = findParent(map.root, nodeId);
+  if (!parent || parent.id === map.root.id) return map;
+  const grand = findParent(map.root, parent.id)!;
+  const index = grand.children.findIndex((c) => c.id === parent.id);
+  return moveNode(map, nodeId, grand.id, index + 1);
+}
+
+/** Deep copy of a subtree with fresh ids (copy / paste / duplicate). */
+export function cloneSubtree(node: MindNode): MindNode {
+  const copy = clone(node);
+  for (const { node: n } of walk(copy)) n.id = newId();
+  return copy;
+}
+
+export function pasteSubtree(map: MindMap, parentId: string, subtree: MindNode): { map: MindMap; created: MindNode } {
+  const next = clone(map);
+  const parent = requireNode(next.root, parentId);
+  const created = cloneSubtree(subtree);
+  parent.children.push(created);
+  delete parent.collapsed;
+  return { map: next, created };
+}
+
 // ---------------------------------------------------------------------------
-// outline (markdown) import / export - the lingua franca for Claude and MCP
+// markdown / outline import and export
 
 export interface OutlineOptions {
   /** Include node ids as trailing `{#id}` tags so a model can reference them. */
   withIds?: boolean;
-  /** Include notes as indented quote blocks. */
+  /** Include notes as quoted lines. */
   withNotes?: boolean;
 }
 
@@ -268,13 +443,18 @@ export function toOutline(root: MindNode, options: OutlineOptions = {}): string 
   const lines: string[] = [];
   const visit = (node: MindNode, depth: number) => {
     const indent = "  ".repeat(Math.max(0, depth - 1));
+    const box = node.task ? (node.task === "done" ? "[x] " : "[ ] ") : "";
     const marker = node.marker ? `${node.marker} ` : "";
+    const prio = node.priority ? `(P${node.priority}) ` : "";
+    const text = node.textStyle?.bold ? `**${node.text}**` : node.text;
+    const linked = node.link ? `[${text}](${node.link})` : text;
     const id = options.withIds ? ` {#${node.id}}` : "";
-    const collapsed = node.collapsed && node.children.length ? " (collapsed)" : "";
-    if (depth === 0) lines.push(`# ${marker}${node.text}${id}`);
-    else lines.push(`${indent}- ${marker}${node.text}${id}${collapsed}`);
+    const collapsed = options.withIds && node.collapsed && node.children.length ? " (collapsed)" : "";
+    if (depth === 0) lines.push(`# ${marker}${linked}${id}`);
+    else lines.push(`${indent}- ${box}${prio}${marker}${linked}${id}${collapsed}`);
     if (options.withNotes && node.note) {
-      for (const noteLine of node.note.split("\n")) lines.push(`${indent}  > ${noteLine}`);
+      const noteIndent = depth === 0 ? "" : `${indent}  `;
+      for (const noteLine of node.note.split("\n")) lines.push(`${noteIndent}> ${noteLine}`);
     }
     for (const child of node.children) visit(child, depth + 1);
   };
@@ -282,75 +462,217 @@ export function toOutline(root: MindNode, options: OutlineOptions = {}): string 
   return lines.join("\n");
 }
 
-/**
- * Parse a markdown-style outline into node inputs. Accepts:
- *   # Title            (optional, becomes the root text when `title` is returned)
- *   - item / * item / 1. item with 2-space or tab indentation
- *   > note lines attached to the previous item
- */
-export function parseOutline(text: string): { title?: string; nodes: NodeInput[] } {
-  const lines = text.replace(/\r/g, "").split("\n");
-  let title: string | undefined;
-  const stack: { depth: number; node: NodeInput }[] = [];
-  const roots: NodeInput[] = [];
-  let last: NodeInput | undefined;
+const EMOJI_START = /^(\p{Extended_Pictographic}(?:️|⃣)?(?:‍\p{Extended_Pictographic}️?)*)\s+/u;
 
-  for (const raw of lines) {
-    if (!raw.trim()) continue;
-    const heading = /^#{1,6}\s+(.*)$/.exec(raw.trim());
-    if (heading && title === undefined && stack.length === 0) {
-      title = heading[1].replace(/\s*\{#[^}]+\}\s*$/, "").trim();
-      continue;
-    }
-    const note = /^\s*>\s?(.*)$/.exec(raw);
-    if (note && last) {
-      last.note = last.note ? `${last.note}\n${note[1]}` : note[1];
-      continue;
-    }
-    const item = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.*)$/.exec(raw);
-    let depth: number;
-    let content: string;
-    if (item) {
-      const indent = item[1].replace(/\t/g, "  ").length;
-      depth = Math.floor(indent / 2);
-      content = item[2];
-    } else {
-      // Plain line: treat indentation as depth too.
-      const indent = (/^(\s*)/.exec(raw)?.[1] ?? "").replace(/\t/g, "  ").length;
-      depth = Math.floor(indent / 2);
-      content = raw.trim();
-    }
-    content = content.replace(/\s*\{#[^}]+\}\s*$/, "").replace(/\s*\(collapsed\)\s*$/, "").trim();
-    if (!content) continue;
-    const node: NodeInput = { text: content };
-    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
-    if (stack.length === 0) roots.push(node);
-    else (stack[stack.length - 1].node.children ??= []).push(node);
-    stack.push({ depth, node });
-    last = node;
+/** Turn one line of markdown into node fields (checkbox, bold, link, emoji, priority). */
+function parseItemText(raw: string): NodeInput {
+  let text = raw.trim();
+  const node: NodeInput = { text: "" };
+  const box = /^\[( |x|X)\]\s+/.exec(text);
+  if (box) {
+    node.task = box[1] === " " ? "todo" : "done";
+    text = text.slice(box[0].length);
   }
-  return { title, nodes: roots };
+  const prio = /^\(P([1-9])\)\s+/.exec(text);
+  if (prio) {
+    node.priority = Number(prio[1]);
+    text = text.slice(prio[0].length);
+  }
+  const emoji = EMOJI_START.exec(text);
+  if (emoji) {
+    node.marker = emoji[1];
+    text = text.slice(emoji[0].length);
+  }
+  const whole = /^\[([^\]]+)\]\((\S+?)\)$/.exec(text);
+  if (whole) {
+    text = whole[1];
+    node.link = whole[2];
+  } else {
+    text = text.replace(/\[([^\]]+)\]\((\S+?)\)/g, (_m, label: string, url: string) => {
+      node.link ??= url;
+      return label;
+    });
+  }
+  const bold = /^(\*\*|__)(.+)\1$/.exec(text);
+  if (bold) {
+    node.bold = true;
+    text = bold[2];
+  }
+  text = text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/(^|[^*])\*(?!\s)(.+?)\*/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s*\{#[^}]+\}\s*$/, "")
+    .replace(/\s*\(collapsed\)\s*$/, "")
+    .trim();
+  node.text = text;
+  return node;
 }
 
+/**
+ * Parse Markdown (or plain indented text) into a tree. Understands:
+ *   # Title                         -> central topic
+ *   ## Heading / ### Sub-heading    -> branches by heading level
+ *   - item, * item, + item, 1. item -> nested by indentation (2 or 4 spaces, tabs)
+ *   - [ ] task / - [x] done         -> checkboxes
+ *   **bold**, [text](url), leading emoji, (P1) priority
+ *   > quote, or a paragraph          -> note on the item above
+ * Plain text with no bullets or headings becomes one node per line, nested by indentation.
+ */
+export function parseOutline(text: string): { title?: string; note?: string; nodes: NodeInput[] } {
+  const rawLines = text.replace(/\r/g, "").replace(/\t/g, "    ").split("\n");
+  // Drop fenced code blocks and front matter.
+  const lines: string[] = [];
+  let inFence = false;
+  for (const line of rawLines) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) lines.push(line);
+  }
+  const structured = lines.some((l) => /^\s*(#{1,6}\s|[-*+•]\s|\d+[.)]\s)/.test(l));
+
+  // Indentation unit: the smallest non-zero indent used by list items.
+  let unit = 2;
+  const indents = lines
+    .map((l) => /^(\s*)(?:[-*+•]|\d+[.)])\s/.exec(l)?.[1].length ?? (structured ? 0 : /^(\s*)\S/.exec(l)?.[1].length ?? 0))
+    .filter((n) => n > 0);
+  if (indents.length) unit = Math.max(1, Math.min(...indents));
+
+  let title: string | undefined;
+  let rootNote: string | undefined;
+  const roots: NodeInput[] = [];
+  /** Stack of open containers: level is a comparable depth key. */
+  const stack: { level: number; node: NodeInput }[] = [];
+  let last: NodeInput | undefined;
+  let headingLevel = 0; // depth contributed by the current heading
+
+  const attach = (node: NodeInput, level: number) => {
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+    if (stack.length === 0) roots.push(node);
+    else (stack[stack.length - 1].node.children ??= []).push(node);
+    stack.push({ level, node });
+    last = node;
+  };
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) continue; // horizontal rule
+    const heading = /^\s*(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const content = parseItemText(heading[2]);
+      if (!content.text) continue;
+      if (title === undefined && level === 1 && roots.length === 0 && stack.length === 0) {
+        title = content.text;
+        last = undefined;
+        continue;
+      }
+      // "#" headings after the title behave like "##".
+      const depth = Math.max(1, level - 1) * 100;
+      attach(content, depth);
+      headingLevel = depth;
+      continue;
+    }
+    const quote = /^\s*>\s?(.*)$/.exec(line);
+    if (quote) {
+      if (last) last.note = last.note ? `${last.note}\n${quote[1]}` : quote[1];
+      else if (title !== undefined) rootNote = rootNote ? `${rootNote}\n${quote[1]}` : quote[1];
+      continue;
+    }
+    const item = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (item || !structured) {
+      const indent = item ? item[1].length : (/^(\s*)/.exec(line)?.[1].length ?? 0);
+      const content = parseItemText(item ? item[2] : line);
+      if (!content.text) continue;
+      attach(content, headingLevel + 1 + Math.round(indent / unit));
+      continue;
+    }
+    // A paragraph inside structured markdown: note for the item above.
+    const para = line.trim();
+    if (last) last.note = last.note ? `${last.note}\n${para}` : para;
+    else if (title === undefined) title = parseItemText(para).text;
+    else rootNote = rootNote ? `${rootNote}\n${para}` : para;
+  }
+  // A single top-level item with children is the central topic.
+  if (title === undefined && roots.length === 1 && roots[0].children?.length) {
+    title = roots[0].text;
+    rootNote = roots[0].note;
+    return { title, note: rootNote, nodes: roots[0].children };
+  }
+  return { title, note: rootNote, nodes: roots };
+}
+
+/** Build a complete map from Markdown / indented text. */
+export function mapFromOutline(
+  text: string,
+  fallbackTitle = "Untitled map",
+  options: Partial<Pick<MindMap, "layout" | "theme" | "style" | "folder">> = {},
+): MindMap {
+  const parsed = parseOutline(text);
+  const map = createMap(parsed.title || fallbackTitle, options, parsed.nodes);
+  if (parsed.note) map.root.note = parsed.note;
+  return map;
+}
+
+// ---------------------------------------------------------------------------
+// summaries for the library
+
 export function summarize(map: MindMap): MapSummary {
-  return {
+  const words: string[] = [];
+  let size = 0;
+  for (const { node } of walk(map.root)) {
+    if (size > 4000) break;
+    words.push(node.text);
+    size += node.text.length + 1;
+  }
+  const progress = taskProgress(map.root);
+  const summary: MapSummary = {
     id: map.id,
     title: map.title,
     nodeCount: countNodes(map.root),
     version: map.version,
     updatedAt: map.updatedAt,
+    createdAt: map.createdAt,
+    layout: map.layout,
+    theme: map.theme,
+    preview: {
+      root: map.root.text.slice(0, 60),
+      branches: map.root.children.slice(0, 8).map((c) => ({ text: c.text.slice(0, 40), color: c.color, children: c.children.length })),
+    },
+    searchText: words.join(" ").toLowerCase(),
   };
+  if (map.folder) summary.folder = map.folder;
+  if (map.favorite) summary.favorite = true;
+  if (progress.total) summary.progress = progress;
+  return summary;
 }
 
-/** Defensive validation for data coming over the wire or from disk. */
+// ---------------------------------------------------------------------------
+// validation for data coming over the wire or from disk
+
+const LINE_STYLES: LineStyle[] = ["curve", "elbow", "straight"];
+const SHAPES: NodeShape[] = ["theme", "rounded", "pill", "rect", "underline"];
+const SPACINGS: Spacing[] = ["compact", "normal", "loose"];
+const SIZES: TextSize[] = ["s", "m", "l", "xl"];
+const COLOR = /^#[0-9a-fA-F]{3,8}$|^[a-zA-Z]{3,20}$/;
+
+function str(value: unknown, max: number): string | undefined {
+  return typeof value === "string" && value ? value.slice(0, max) : undefined;
+}
+
 export function normalizeMap(input: unknown): MindMap {
   if (!input || typeof input !== "object") throw new MapError("Map must be an object");
   const raw = input as Partial<MindMap>;
-  if (!raw.root || typeof raw.root !== "object") throw new MapError("Map is missing a root node");
+  if (!raw.root || typeof raw.root !== "object") throw new MapError("Map is missing a central topic");
   const seen = new Set<string>();
+  let count = 0;
   const normalizeNode = (node: Partial<MindNode>, depth: number): MindNode => {
     if (depth > 200) throw new MapError("Map nesting is too deep");
-    let id = typeof node.id === "string" && node.id ? node.id : newId();
+    if (++count > 20000) throw new MapError("Map has too many nodes");
+    let id = typeof node.id === "string" && node.id ? node.id.slice(0, 40) : newId();
     while (seen.has(id)) id = newId();
     seen.add(id);
     const out: MindNode = {
@@ -358,23 +680,58 @@ export function normalizeMap(input: unknown): MindMap {
       text: typeof node.text === "string" && node.text.trim() ? node.text.slice(0, 2000) : "Untitled",
       children: Array.isArray(node.children) ? node.children.map((c) => normalizeNode(c ?? {}, depth + 1)) : [],
     };
-    if (typeof node.note === "string" && node.note) out.note = node.note.slice(0, 20000);
-    if (typeof node.color === "string" && node.color) out.color = node.color.slice(0, 40);
-    if (typeof node.marker === "string" && node.marker) out.marker = node.marker.slice(0, 8);
-    if (typeof node.link === "string" && node.link) out.link = node.link.slice(0, 2000);
-    if (node.collapsed) out.collapsed = true;
+    const note = str(node.note, 50000);
+    if (note) out.note = note;
+    const color = str(node.color, 40);
+    if (color && COLOR.test(color)) out.color = color;
+    const marker = str(node.marker, 16);
+    if (marker) out.marker = marker;
+    const link = str(node.link, 2000);
+    if (link) out.link = link;
+    if (typeof node.priority === "number" && node.priority >= 1 && node.priority <= 9) out.priority = Math.round(node.priority);
+    if (node.task === "todo" || node.task === "done") out.task = node.task;
+    const img = node.image;
+    if (img && typeof img === "object" && typeof img.src === "string" && /^(data:image\/|https:\/\/)/.test(img.src) && img.src.length < 4_000_000) {
+      out.image = { src: img.src, w: Math.max(16, Math.min(600, Number(img.w) || 160)), h: Math.max(16, Math.min(600, Number(img.h) || 120)) };
+    }
+    const ts = node.textStyle;
+    if (ts && typeof ts === "object") {
+      const t: TextStyle = {};
+      if (ts.bold) t.bold = true;
+      if (ts.italic) t.italic = true;
+      if (ts.size && SIZES.includes(ts.size)) t.size = ts.size;
+      const tc = str(ts.color, 40);
+      if (tc && COLOR.test(tc)) t.color = tc;
+      const tf = str(ts.fill, 40);
+      if (tf && COLOR.test(tf)) t.fill = tf;
+      if (Object.keys(t).length) out.textStyle = t;
+    }
+    if (node.collapsed && out.children.length) out.collapsed = true;
     return out;
   };
   const now = new Date().toISOString();
-  const layout: LayoutMode = raw.layout === "right" || raw.layout === "down" ? raw.layout : "mindmap";
-  return {
-    id: typeof raw.id === "string" && raw.id ? raw.id : newId(10),
+  const layout: LayoutMode = LAYOUTS.includes(raw.layout as LayoutMode) ? (raw.layout as LayoutMode) : "mindmap";
+  const map: MindMap = {
+    id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 40) : newId(10),
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.slice(0, 200) : "Untitled map",
     root: normalizeNode(raw.root, 0),
     layout,
-    theme: typeof raw.theme === "string" ? raw.theme : "aurora",
+    theme: typeof raw.theme === "string" && raw.theme ? raw.theme.slice(0, 40) : "classic",
     version: typeof raw.version === "number" ? raw.version : 1,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
+  const st = raw.style;
+  if (st && typeof st === "object") {
+    const s: MapStyle = {};
+    if (LINE_STYLES.includes(st.line as LineStyle)) s.line = st.line;
+    if (SHAPES.includes(st.shape as NodeShape)) s.shape = st.shape;
+    if (typeof st.rainbow === "boolean") s.rainbow = st.rainbow;
+    if (SPACINGS.includes(st.spacing as Spacing)) s.spacing = st.spacing;
+    if (Object.keys(s).length) map.style = s;
+  }
+  const folder = str(raw.folder, 80);
+  if (folder?.trim()) map.folder = folder.trim();
+  if (raw.favorite) map.favorite = true;
+  return map;
 }

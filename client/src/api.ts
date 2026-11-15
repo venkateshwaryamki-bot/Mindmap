@@ -1,4 +1,5 @@
 import type { MapSummary, MindMap } from "@shared/model";
+import type { CreateMapRequest } from "@shared/create";
 import { ApiError, type ChatEvent, type ChatTurn, type Health, type StoreEvent } from "./apiTypes";
 import { localApi, localStreamChat, localSubscribeEvents } from "./backend/local";
 
@@ -36,7 +37,7 @@ const remoteApi = {
   health: () => fetch("/api/health").then((r) => json<Health>(r)),
   listMaps: () => fetch("/api/maps").then((r) => json<MapSummary[]>(r)),
   getMap: (id: string) => fetch(`/api/maps/${id}`).then((r) => json<MindMap>(r)),
-  createMap: (body: { title?: string; outline?: string; layout?: string; theme?: string; map?: unknown }) =>
+  createMap: (body: CreateMapRequest) =>
     fetch("/api/maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) =>
       json<MindMap>(r),
     ),

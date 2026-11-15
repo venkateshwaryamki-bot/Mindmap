@@ -3,17 +3,8 @@
  * phone, and the Claude assistant calls the Claude API directly with the user's key.
  * Mirrors the server's REST API so the rest of the app does not care which is used.
  */
-import {
-  type LayoutMode,
-  type MapSummary,
-  type MindMap,
-  MapError,
-  createMap,
-  newId,
-  normalizeMap,
-  parseOutline,
-  summarize,
-} from "@shared/model";
+import { type MapSummary, type MindMap, MapError, normalizeMap, summarize } from "@shared/model";
+import { type CreateMapRequest, mapFromRequest } from "@shared/create";
 import type { MapRepository } from "@shared/repository";
 import { welcomeMap } from "@shared/welcome";
 import { DEFAULT_MODEL, runChat } from "@shared/assistant";
@@ -203,18 +194,10 @@ export const localApi = {
       return asApiError(e);
     }
   },
-  createMap: async (body: { title?: string; outline?: string; layout?: string; theme?: string; map?: unknown }) => {
+  createMap: async (body: CreateMapRequest) => {
     const s = await store();
     try {
-      if (body.map) {
-        const imported = normalizeMap(body.map);
-        imported.id = newId(10);
-        return clone(await s.create(imported));
-      }
-      const parsed = body.outline ? parseOutline(body.outline) : { title: undefined, nodes: [] };
-      const title = body.title?.trim() || parsed.title || "Untitled map";
-      const layout = (["mindmap", "right", "down"].includes(body.layout ?? "") ? body.layout : undefined) as LayoutMode | undefined;
-      return clone(await s.create(createMap(title, { layout, theme: body.theme }, parsed.nodes)));
+      return clone(await s.create(mapFromRequest(body)));
     } catch (e) {
       return asApiError(e);
     }

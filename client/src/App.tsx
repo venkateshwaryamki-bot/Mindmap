@@ -1,77 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { MapSummary } from "@shared/model";
-import { findParent } from "@shared/model";
-import { AUTH_REQUIRED_EVENT, STANDALONE, api, type Health, subscribeEvents } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MapSummary, type MindMap, summarize } from "@shared/model";
+import type { CreateMapRequest } from "@shared/create";
+import { AUTH_REQUIRED_EVENT, api, type Health, subscribeEvents } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
-import { NodeActionBar } from "./components/NodeActionBar";
+import { Library } from "./components/Library";
+import { Editor } from "./components/Editor";
+import { CreateOptions, CreateSheet, TemplateGallery } from "./components/CreateSheet";
+import { MarkdownDialog } from "./components/MarkdownDialog";
+import { AIGenerateDialog, type AIRequest } from "./components/AIGenerateDialog";
+import { Settings } from "./components/Settings";
+import { IMPORT_ACCEPT, importFile } from "./export/importers";
+import { download } from "./export/download";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
-import { useInstallPrompt } from "./useInstallPrompt";
-import { Canvas, type CanvasHandle } from "./components/Canvas";
-import { Sidebar } from "./components/Sidebar";
-import { Toolbar } from "./components/Toolbar";
-import { Inspector } from "./components/Inspector";
-import { AIPanel } from "./components/AIPanel";
-import { NewMapDialog, type NewMapRequest } from "./components/NewMapDialog";
-import { copyOutline, download, exportJson, exportMarkdown, exportPng } from "./export";
-import { getTheme } from "./themes";
-import { useMapEditor } from "./useMapEditor";
+import { usePrefs } from "./prefs";
+import type { Template } from "./templates";
+
+type Route = { name: "home" } | { name: "templates" } | { name: "settings" } | { name: "map"; id: string };
+
+function parseHash(): Route {
+  const h = location.hash.replace(/^#\/?/, "");
+  if (h.startsWith("map/")) return { name: "map", id: decodeURIComponent(h.slice(4)) };
+  if (h === "templates") return { name: "templates" };
+  if (h === "settings") return { name: "settings" };
+  return { name: "home" };
+}
 
 interface Toast {
   id: number;
   text: string;
 }
 
-const LAST_MAP_KEY = "mindflow:lastMap";
-
 export default function App() {
-  const [maps, setMaps] = useState<MapSummary[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LAST_MAP_KEY);
-    } catch {
-      return null;
-    }
-  });
-  const [health, setHealth] = useState<Health | null>(null);
-  const [connected, setConnected] = useState(false);
   const isMobile = useMediaQuery(MOBILE_QUERY);
+  const { prefs, update: updatePrefs } = usePrefs();
   const [authState, setAuthState] = useState<"checking" | "required" | "ok">("checking");
   const [authRequired, setAuthRequired] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const install = useInstallPrompt();
-  const [aiOpen, setAiOpenRaw] = useState(() => !window.matchMedia(MOBILE_QUERY).matches);
-  const [inspectorOpen, setInspectorOpenRaw] = useState(false);
-  // On phones the panels are bottom sheets, so only one is open at a time.
-  const setAiOpen = useCallback(
-    (next: boolean | ((v: boolean) => boolean)) =>
-      setAiOpenRaw((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        if (value && window.matchMedia(MOBILE_QUERY).matches) setInspectorOpenRaw(false);
-        return value;
-      }),
-    [],
-  );
-  const setInspectorOpen = useCallback(
-    (next: boolean | ((v: boolean) => boolean)) =>
-      setInspectorOpenRaw((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        if (value && window.matchMedia(MOBILE_QUERY).matches) setAiOpenRaw(false);
-        return value;
-      }),
-    [],
-  );
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [route, setRoute] = useState<Route>(parseHash);
+  const [maps, setMaps] = useState<MapSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [folder, setFolder] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [mdOpen, setMdOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [autoPrompt, setAutoPrompt] = useState<string | null>(null);
-  const canvasRef = useRef<CanvasHandle | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const toast = useCallback((text: string) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    setToasts((t) => [...t.slice(-2), { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }, []);
 
-  // Sign-in gate (only when the server has APP_PASSWORD set).
+  // ---- routing (history aware, so the phone's Back button works) -----------
+  useEffect(() => {
+    const onPop = () => setRoute(parseHash());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = useCallback((next: Route) => {
+    const hash = next.name === "home" ? "" : next.name === "map" ? `#/map/${encodeURIComponent(next.id)}` : `#/${next.name}`;
+    history.pushState({ mf: true }, "", hash || location.pathname + location.search);
+    setRoute(next);
+  }, []);
+  const goHome = useCallback(() => {
+    if ((history.state as { mf?: boolean } | null)?.mf) history.back();
+    else {
+      history.replaceState(null, "", location.pathname + location.search);
+      setRoute({ name: "home" });
+    }
+  }, []);
+
+  // ---- sign in -------------------------------------------------------------------
   useEffect(() => {
     api
       .session()
@@ -80,16 +81,13 @@ export default function App() {
         setAuthState(s.required && !s.signedIn ? "required" : "ok");
       })
       .catch(() => setAuthState("ok"));
-    const onAuthRequired = () => setAuthState("required");
-    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
-    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    const onAuth = () => setAuthState("required");
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuth);
   }, []);
   const ready = authState === "ok";
 
-  const { state, selectedNode, actions } = useMapEditor(ready ? currentId : null, toast);
-  const map = state.map;
-  const theme = getTheme(map?.theme ?? "aurora");
-
+  // ---- data --------------------------------------------------------------------
   const refreshMaps = useCallback(async () => {
     try {
       const list = await api.listMaps();
@@ -98,432 +96,298 @@ export default function App() {
     } catch (e) {
       toast((e as Error).message);
       return [];
+    } finally {
+      setLoading(false);
     }
   }, [toast]);
+  const refreshHealth = useCallback(() => void api.health().then(setHealth).catch(() => undefined), []);
 
-  // Initial load
   useEffect(() => {
     if (!ready) return;
-    api.health().then(setHealth).catch(() => setHealth({ ok: false, ai: false, model: "", mcp: { http: "/mcp", tools: [] } }));
-    void refreshMaps().then((list) => {
-      setCurrentId((cur) => (cur && list.some((m) => m.id === cur) ? cur : list[0]?.id ?? null));
-    });
-  }, [refreshMaps, ready]);
+    refreshHealth();
+    void refreshMaps();
+  }, [ready, refreshMaps, refreshHealth]);
 
-  useEffect(() => {
-    if (currentId)
-      try {
-        localStorage.setItem(LAST_MAP_KEY, currentId);
-      } catch {
-        /* private mode */
-      }
-  }, [currentId]);
-
-  // Live sync (edits from MCP clients / other tabs / the assistant)
-  const applyRemote = actions.applyRemote;
   useEffect(() => {
     if (!ready) return;
     return subscribeEvents((event) => {
-      if (event.type === "map.updated") {
-        applyRemote(event.map);
-        setMaps((prev) => {
-          const summary: MapSummary = {
-            id: event.map.id,
-            title: event.map.title,
-            nodeCount: countNodes(event.map.root),
-            version: event.map.version,
-            updatedAt: event.map.updatedAt,
-          };
-          const idx = prev.findIndex((m) => m.id === summary.id);
-          const next = idx >= 0 ? prev.map((m) => (m.id === summary.id ? summary : m)) : [summary, ...prev];
-          return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-        });
-      } else if (event.type === "map.created") {
-        void refreshMaps();
-      } else if (event.type === "map.deleted") {
-        setMaps((prev) => prev.filter((m) => m.id !== event.id));
-        setCurrentId((cur) => (cur === event.id ? null : cur));
+      if (event.type === "map.deleted") setMaps((prev) => prev.filter((m) => m.id !== event.id));
+      else {
+        const summary = summarize(event.map);
+        setMaps((prev) => [summary, ...prev.filter((m) => m.id !== summary.id)]);
       }
-    }, setConnected);
-  }, [applyRemote, refreshMaps, ready]);
+    });
+  }, [ready]);
 
-  // When the current map disappears, fall back to the first one.
-  useEffect(() => {
-    if (!currentId && maps.length) setCurrentId(maps[0].id);
-  }, [currentId, maps]);
+  const folders = useMemo(() => {
+    const set = new Set(prefs.folders);
+    for (const m of maps) if (m.folder) set.add(m.folder);
+    return [...set].sort();
+  }, [maps, prefs.folders]);
 
-  // ---- keyboard shortcuts --------------------------------------------------
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
-      if (!map) return;
-      const sel = state.selectedId;
-      const mod = e.ctrlKey || e.metaKey;
+  // ---- creating ----------------------------------------------------------------
+  const createAndOpen = useCallback(
+    async (body: CreateMapRequest, prompt?: string) => {
+      try {
+        const map = await api.createMap({ folder: folder ?? undefined, ...body });
+        setCreateOpen(false);
+        setMdOpen(false);
+        setAiOpen(false);
+        if (prompt) setAutoPrompt(prompt);
+        navigate({ name: "map", id: map.id });
+      } catch (e) {
+        toast((e as Error).message);
+      }
+    },
+    [folder, navigate, toast],
+  );
 
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) actions.redo();
-        else actions.undo();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        actions.redo();
-        return;
-      }
-      if (mod && e.key === "0") {
-        e.preventDefault();
-        canvasRef.current?.fit();
-        return;
-      }
-      if (mod && (e.key === "=" || e.key === "+")) {
-        e.preventDefault();
-        canvasRef.current?.zoomBy(1.2);
-        return;
-      }
-      if (mod && e.key === "-") {
-        e.preventDefault();
-        canvasRef.current?.zoomBy(1 / 1.2);
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setAiOpen((v) => !v);
-        return;
-      }
-      if (!sel) {
-        if (e.key === "Tab") {
-          e.preventDefault();
-          actions.select(map.root.id);
+  const createBlank = () =>
+    void createAndOpen({ outline: "# Main Idea\n- Topic\n- Topic\n- Topic", layout: prefs.defaultLayout, theme: prefs.defaultTheme });
+  const createFromTemplate = (t: Template) => void createAndOpen({ outline: t.markdown, layout: t.layout, theme: t.theme, style: t.style });
+  const createFromAI = (r: AIRequest) => void createAndOpen({ title: r.title, layout: r.layout, theme: prefs.defaultTheme }, r.prompt);
+
+  const runImport = async (files: FileList | File[]) => {
+    let created: MindMap | undefined;
+    let count = 0;
+    for (const file of Array.from(files)) {
+      try {
+        for (const req of await importFile(file, folder ?? undefined)) {
+          created = await api.createMap(req);
+          count++;
         }
-        return;
+      } catch (e) {
+        toast(`${file.name}: ${(e as Error).message}`);
       }
-      const placed = canvasRef.current?.getLayout()?.byId.get(sel);
-      switch (e.key) {
-        case "Tab":
-          e.preventDefault();
-          actions.addChild(sel);
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (sel === map.root.id) actions.addChild(sel);
-          else actions.addSibling(sel);
-          break;
-        case "F2":
-          e.preventDefault();
-          actions.startEditing(sel);
-          break;
-        case " ":
-          e.preventDefault();
-          actions.toggleCollapse(sel);
-          break;
-        case "Delete":
-        case "Backspace":
-          e.preventDefault();
-          if (sel !== map.root.id) actions.deleteNode(sel);
-          break;
-        case "Escape":
-          actions.select(null);
-          break;
-        case "ArrowUp":
-        case "ArrowDown": {
-          e.preventDefault();
-          if (mod) {
-            actions.reorder(sel, e.key === "ArrowUp" ? -1 : 1);
-            break;
-          }
-          const layout = canvasRef.current?.getLayout();
-          if (!layout || !placed) break;
-          // nearest node vertically in the same direction, preferring siblings
-          const parent = findParent(map.root, sel);
-          const siblings = parent ? parent.children.filter((c) => layout.byId.has(c.id)) : [];
-          const idx = siblings.findIndex((c) => c.id === sel);
-          const sib = e.key === "ArrowUp" ? siblings[idx - 1] : siblings[idx + 1];
-          if (sib) {
-            actions.select(sib.id);
-            break;
-          }
-          const candidates = layout.nodes.filter((p) => (e.key === "ArrowUp" ? p.y + p.h <= placed.y : p.y >= placed.y + placed.h));
-          const best = candidates.sort((a, b) => dist(a, placed) - dist(b, placed))[0];
-          if (best) actions.select(best.id);
-          break;
-        }
-        case "ArrowLeft":
-        case "ArrowRight": {
-          e.preventDefault();
-          if (!placed) break;
-          const layout = canvasRef.current?.getLayout();
-          if (!layout) break;
-          const node = placed.node;
-          const goingOut = (placed.side === "left" && e.key === "ArrowLeft") || (placed.side !== "left" && e.key === "ArrowRight");
-          if (map.layout === "down") {
-            const parent = findParent(map.root, sel);
-            const siblings = parent?.children ?? [];
-            const idx = siblings.findIndex((c) => c.id === sel);
-            const sib = e.key === "ArrowLeft" ? siblings[idx - 1] : siblings[idx + 1];
-            if (sib) actions.select(sib.id);
-            break;
-          }
-          if (placed.depth === 0) {
-            const side = e.key === "ArrowLeft" ? "left" : "right";
-            const kids = layout.nodes.filter((p) => p.depth === 1 && p.side === side).sort((a, b) => a.y - b.y);
-            const mid = kids[Math.floor(kids.length / 2)];
-            if (mid) actions.select(mid.id);
-            break;
-          }
-          if (goingOut) {
-            if (node.collapsed) actions.toggleCollapse(sel);
-            const kids = node.children;
-            if (kids.length) actions.select(kids[Math.floor(kids.length / 2)].id);
-          } else if (placed.parentId) {
-            actions.select(placed.parentId);
-          }
-          break;
-        }
-        default:
-          // Start typing to rename
-          if (e.key.length === 1 && !mod && !e.altKey) {
-            actions.startEditing(sel);
-          }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [map, state.selectedId, actions]);
-
-  // ---- map management --------------------------------------------------------
-
-  const createMap = async (req: NewMapRequest) => {
-    setDialogOpen(false);
-    try {
-      const created = await api.createMap({ title: req.title, outline: req.generate ? "" : req.outline, layout: req.layout, theme: req.theme });
-      await refreshMaps();
-      setCurrentId(created.id);
-      if (req.generate) {
-        setAiOpen(true);
-        setAutoPrompt(
-          `Build a complete mind map about "${req.title}". ${req.brief ? `Brief: ${req.brief}. ` : ""}` +
-            "Create 5-8 main branches with 3-5 specific sub-points each (use add_nodes with a nested outline, one call per branch or one call for all). " +
-            "Add a short note to the 2-3 most important nodes. Finish with a two-sentence summary.",
-        );
-      }
-    } catch (e) {
-      toast((e as Error).message);
     }
-  };
-
-  const deleteMap = async (id: string) => {
-    const target = maps.find((m) => m.id === id);
-    if (!target || !window.confirm(`Delete "${target.title}"? This cannot be undone.`)) return;
-    try {
-      await api.deleteMap(id);
-      const list = await refreshMaps();
-      if (currentId === id) setCurrentId(list[0]?.id ?? null);
-    } catch (e) {
-      toast((e as Error).message);
-    }
-  };
-
-  const importFile = async (file: File) => {
-    try {
-      const text = await file.text();
-      let created: { id: string; title: string } | undefined;
-      if (file.name.endsWith(".json")) {
-        const data = JSON.parse(text) as { maps?: unknown[] };
-        if (Array.isArray(data.maps)) {
-          // Full backup made with "Back up all maps"
-          for (const m of data.maps) created = await api.createMap({ map: m });
-          await refreshMaps();
-          if (created) setCurrentId(created.id);
-          toast(`Restored ${data.maps.length} map(s) from backup`);
-          return;
-        }
-        created = await api.createMap({ map: data });
-      } else {
-        created = await api.createMap({ outline: text, title: file.name.replace(/\.[^.]+$/, "") });
-      }
-      await refreshMaps();
-      if (created) {
-        setCurrentId(created.id);
-        toast(`Imported "${created.title}"`);
-      }
-    } catch (e) {
-      toast(`Import failed: ${(e as Error).message}`);
-    }
+    await refreshMaps();
+    setCreateOpen(false);
+    if (count === 1 && created) navigate({ name: "map", id: created.id });
+    else if (count > 1) toast(`Imported ${count} maps`);
   };
 
   const backupAll = async () => {
     try {
-      await actions.flushSave();
       const list = await api.listMaps();
-      const all = [];
+      const all: MindMap[] = [];
       for (const m of list) all.push(await api.getMap(m.id));
       const stamp = new Date().toISOString().slice(0, 10);
-      download(`mindflow-backup-${stamp}.json`, JSON.stringify({ mindflowBackup: 1, exportedAt: new Date().toISOString(), maps: all }, null, 2), "application/json");
+      download(`mindflow-backup-${stamp}.json`, JSON.stringify({ mindflowBackup: 2, exportedAt: new Date().toISOString(), folders, maps: all }, null, 2), "application/json");
       toast(`Backed up ${all.length} map(s)`);
     } catch (e) {
       toast(`Backup failed: ${(e as Error).message}`);
     }
   };
 
-  const handleExport = async (kind: "png" | "md" | "json" | "copy") => {
-    if (!map) return;
-    try {
-      if (kind === "md") exportMarkdown(map);
-      else if (kind === "json") exportJson(map);
-      else if (kind === "copy") {
-        await copyOutline(map);
-        toast("Outline copied to clipboard");
-      } else {
-        const layout = canvasRef.current?.getLayout();
-        if (layout) exportPng(map, layout, theme);
+  // ---- map & folder operations from the library -----------------------------
+  const patchMap = useCallback(
+    async (id: string, fn: (m: MindMap) => MindMap) => {
+      try {
+        const m = await api.getMap(id);
+        await api.saveMap(fn(m), m.version);
+        await refreshMaps();
+      } catch (e) {
+        toast((e as Error).message);
       }
-    } catch (e) {
-      toast((e as Error).message);
-    }
+    },
+    [refreshMaps, toast],
+  );
+
+  const mapOps = {
+    rename: (id: string, title: string) => void patchMap(id, (m) => ({ ...m, title, root: { ...m.root, text: title } })),
+    move: (id: string, f: string | undefined) => void patchMap(id, (m) => ({ ...m, folder: f })).then(() => toast(f ? `Moved to ${f}` : "Moved out of folder")),
+    favorite: (id: string, value: boolean) => void patchMap(id, (m) => ({ ...m, favorite: value })),
+    duplicate: (id: string) =>
+      void (async () => {
+        const m = await api.getMap(id);
+        await api.createMap({ map: { ...m, title: `${m.title} (copy)`, root: { ...m.root, text: `${m.title} (copy)` } } });
+        await refreshMaps();
+        toast("Map duplicated");
+      })().catch((e: Error) => toast(e.message)),
+    remove: (id: string) =>
+      void api
+        .deleteMap(id)
+        .then(refreshMaps)
+        .catch((e: Error) => toast(e.message)),
   };
 
-  // Android back button: close whatever is open before leaving the app.
+  const folderOps = {
+    create: (name: string) => {
+      if (!folders.includes(name)) updatePrefs({ folders: [...prefs.folders, name] });
+    },
+    rename: (from: string, to: string) => {
+      updatePrefs({ folders: [...prefs.folders.filter((f) => f !== from && f !== to), to] });
+      void (async () => {
+        for (const m of maps.filter((x) => x.folder === from)) await patchMap(m.id, (x) => ({ ...x, folder: to }));
+        if (folder === from) setFolder(to);
+      })();
+    },
+    remove: (name: string) => {
+      updatePrefs({ folders: prefs.folders.filter((f) => f !== name) });
+      void (async () => {
+        for (const m of maps.filter((x) => x.folder === name)) await patchMap(m.id, (x) => ({ ...x, folder: undefined }));
+        if (folder === name) setFolder(null);
+      })();
+    },
+  };
+
+  // ---- Android back button --------------------------------------------------------
   useEffect(() => {
-    const w = window as unknown as { mindflowBack?: () => boolean };
+    const w = window as unknown as { mindflowBack?: () => boolean; mindflowEditorBack?: () => boolean };
     w.mindflowBack = () => {
-      if (dialogOpen) {
-        setDialogOpen(false);
+      if (aiOpen) return setAiOpen(false), true;
+      if (mdOpen) return setMdOpen(false), true;
+      if (createOpen) return setCreateOpen(false), true;
+      if (route.name === "map") {
+        if (w.mindflowEditorBack?.()) return true;
+        goHome();
         return true;
       }
-      if (drawerOpen) {
-        setDrawerOpen(false);
-        return true;
-      }
-      if (aiOpen) {
-        setAiOpen(false);
-        return true;
-      }
-      if (inspectorOpen) {
-        setInspectorOpen(false);
-        return true;
-      }
-      if (state.editingId) {
-        actions.stopEditing();
-        return true;
-      }
+      if (route.name !== "home") return goHome(), true;
+      if (folder) return setFolder(null), true;
       return false;
     };
     return () => {
       delete w.mindflowBack;
     };
-  }, [dialogOpen, drawerOpen, aiOpen, inspectorOpen, state.editingId, actions, setAiOpen, setInspectorOpen]);
+  }, [aiOpen, mdOpen, createOpen, route, folder, goHome]);
 
   if (authState === "checking") return <div className="splash" />;
   if (authState === "required") return <LoginScreen onSignedIn={() => setAuthState("ok")} />;
 
-  const signOut = async () => {
-    await api.logout().catch(() => undefined);
-    setAuthState("required");
-  };
+  const signOut = authRequired
+    ? async () => {
+        await api.logout().catch(() => undefined);
+        setAuthState("required");
+      }
+    : undefined;
+
+  const nav = (
+    <nav className="app-nav">
+      <button type="button" className={route.name === "home" ? "on" : ""} onClick={() => (route.name === "home" ? setFolder(null) : navigate({ name: "home" }))}>
+        <span className="nav-icon">🏠</span>
+        <span>Home</span>
+      </button>
+      <button type="button" className={route.name === "templates" ? "on" : ""} onClick={() => navigate({ name: "templates" })}>
+        <span className="nav-icon">🧩</span>
+        <span>Templates</span>
+      </button>
+      <button type="button" className="nav-create" onClick={() => setCreateOpen(true)}>
+        <span className="nav-icon">＋</span>
+        <span>Create</span>
+      </button>
+      <button type="button" className={route.name === "settings" ? "on" : ""} onClick={() => navigate({ name: "settings" })}>
+        <span className="nav-icon">⚙️</span>
+        <span>Settings</span>
+      </button>
+    </nav>
+  );
 
   return (
-    <div className={`app${theme.dark ? " dark-canvas" : ""}${isMobile ? " is-mobile" : ""}`}>
-      {isMobile && drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
-      <Sidebar
-        maps={maps}
-        currentId={currentId}
-        connected={connected}
-        onSelect={(id) => {
-          setCurrentId(id);
-          setDrawerOpen(false);
-        }}
-        onNew={() => {
-          setDrawerOpen(false);
-          setDialogOpen(true);
-        }}
-        onDelete={(id) => void deleteMap(id)}
-        onImport={(f) => {
-          setDrawerOpen(false);
-          void importFile(f);
-        }}
-        open={drawerOpen}
-        onClose={isMobile ? () => setDrawerOpen(false) : undefined}
-        install={install}
-        onBackup={() => void backupAll()}
-        standalone={STANDALONE}
-        onSignOut={authRequired ? () => void signOut() : undefined}
-      />
-      <main className="workspace">
-        {map ? (
-          <>
-            <Toolbar
-              map={map}
-              state={state}
-              actions={actions}
-              isMobile={isMobile}
-              aiOpen={aiOpen}
-              inspectorOpen={inspectorOpen}
-              onOpenDrawer={() => setDrawerOpen(true)}
-              onToggleAI={() => setAiOpen((v) => !v)}
-              onToggleInspector={() => setInspectorOpen((v) => !v)}
-              onFit={() => canvasRef.current?.fit()}
-              onZoom={(f) => canvasRef.current?.zoomBy(f)}
-              onExport={(k) => void handleExport(k)}
-            />
-            <div className="stage">
-              <Canvas
-                map={map}
-                theme={theme}
-                selectedId={state.selectedId}
-                editingId={state.editingId}
-                actions={actions}
-                viewRef={canvasRef}
+    <div className={`app${isMobile ? " is-mobile" : ""}`}>
+      {route.name === "map" ? (
+        <Editor
+          key={route.id}
+          mapId={route.id}
+          health={health}
+          prefs={prefs}
+          folders={folders}
+          isMobile={isMobile}
+          toast={toast}
+          onBack={() => {
+            goHome();
+            void refreshMaps();
+          }}
+          onDuplicate={mapOps.duplicate}
+          onHealthChange={refreshHealth}
+          autoPrompt={autoPrompt}
+          onAutoPromptConsumed={() => setAutoPrompt(null)}
+        />
+      ) : (
+        <div className="shell">
+          {!isMobile && nav}
+          <main className="shell-main">
+            {route.name === "home" && (
+              <Library
+                maps={maps}
+                prefs={prefs}
+                updatePrefs={updatePrefs}
+                folder={folder}
+                setFolder={setFolder}
+                onOpen={(id) => navigate({ name: "map", id })}
+                onCreate={() => setCreateOpen(true)}
+                onImport={(files) => void runImport(files)}
+                onBackupAll={() => void backupAll()}
+                mapOps={mapOps}
+                folderOps={folderOps}
+                loading={loading}
               />
-              {isMobile && !aiOpen && !inspectorOpen && (
-                <NodeActionBar
-                  map={map}
-                  node={selectedNode}
-                  actions={actions}
-                  onDetails={() => setInspectorOpen(true)}
-                  onClaude={() => setAiOpen(true)}
-                />
-              )}
-              {inspectorOpen && selectedNode && (
-                <Inspector map={map} node={selectedNode} theme={theme} actions={actions} onClose={() => setInspectorOpen(false)} />
-              )}
-              {aiOpen && (
-                <AIPanel
-                  map={map}
-                  selectedNode={selectedNode}
-                  actions={actions}
-                  health={health}
-                  onClose={() => setAiOpen(false)}
-                  autoPrompt={autoPrompt}
-                  onAutoPromptConsumed={() => setAutoPrompt(null)}
-                  onHealthChange={() => void api.health().then(setHealth)}
-                />
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="empty-state">
-            {state.error ? (
-              <p className="error">{state.error}</p>
-            ) : (
-              <>
-                {isMobile && (
-                  <button type="button" className="empty-menu" onClick={() => setDrawerOpen(true)}>
-                    ☰ Maps
-                  </button>
-                )}
-                <h1>MindFlow</h1>
-                <p>Create a map to get started, or connect an MCP client and ask Claude to build one.</p>
-                <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
-                  + New map
-                </button>
-              </>
             )}
-          </div>
-        )}
-      </main>
-      <NewMapDialog open={dialogOpen} aiAvailable={health?.ai ?? false} onClose={() => setDialogOpen(false)} onCreate={(r) => void createMap(r)} />
+            {route.name === "templates" && (
+              <div className="page templates-page">
+                <header className="lib-header">
+                  <h1>Templates</h1>
+                </header>
+                <div className="lib-scroll">
+                  <CreateOptions onBlank={createBlank} onMarkdown={() => setMdOpen(true)} onAI={() => setAiOpen(true)} onImport={() => importRef.current?.click()} />
+                  <TemplateGallery onTemplate={createFromTemplate} />
+                </div>
+              </div>
+            )}
+            {route.name === "settings" && (
+              <Settings
+                prefs={prefs}
+                update={updatePrefs}
+                health={health}
+                mapCount={maps.length}
+                onBackupAll={() => void backupAll()}
+                onImport={() => importRef.current?.click()}
+                onHealthChange={refreshHealth}
+                onSignOut={signOut}
+              />
+            )}
+          </main>
+          {isMobile && nav}
+        </div>
+      )}
+
+      <CreateSheet
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onBlank={createBlank}
+        onTemplate={createFromTemplate}
+        onMarkdown={() => {
+          setCreateOpen(false);
+          setMdOpen(true);
+        }}
+        onAI={() => {
+          setCreateOpen(false);
+          setAiOpen(true);
+        }}
+        onImport={() => importRef.current?.click()}
+      />
+      <MarkdownDialog
+        open={mdOpen}
+        onClose={() => setMdOpen(false)}
+        mode="create"
+        defaultLayout={prefs.defaultLayout}
+        defaultTheme={prefs.defaultTheme}
+        onCreate={(markdown, layout, theme) => void createAndOpen({ outline: markdown, layout, theme })}
+      />
+      <AIGenerateDialog open={aiOpen} onClose={() => setAiOpen(false)} defaultLayout={prefs.defaultLayout} onGenerate={createFromAI} />
+
+      <input
+        ref={importRef}
+        type="file"
+        multiple
+        accept={IMPORT_ACCEPT}
+        hidden
+        onChange={(e) => {
+          if (e.target.files?.length) void runImport(Array.from(e.target.files));
+          e.target.value = "";
+        }}
+      />
+
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className="toast">
@@ -533,18 +397,4 @@ export default function App() {
       </div>
     </div>
   );
-}
-
-function dist(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
-  const ax = a.x + a.w / 2;
-  const ay = a.y + a.h / 2;
-  const bx = b.x + b.w / 2;
-  const by = b.y + b.h / 2;
-  return Math.hypot((ax - bx) * 0.6, ay - by);
-}
-
-function countNodes(node: { children: { children: unknown[] }[] }): number {
-  let n = 1;
-  for (const c of node.children) n += countNodes(c as { children: { children: unknown[] }[] });
-  return n;
 }

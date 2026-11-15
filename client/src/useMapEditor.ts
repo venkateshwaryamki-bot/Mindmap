@@ -11,7 +11,16 @@ import {
   moveNode,
   reorderChild,
   updateNode,
+  addParent,
+  indentNode,
+  outdentNode,
+  pasteSubtree,
+  cloneSubtree,
+  type MapStyle,
 } from "@shared/model";
+
+/** In-app clipboard for copy / cut / paste of branches. */
+let clipboard: MindNode | null = null;
 import { api, ApiError, STANDALONE } from "./api";
 
 export interface EditorState {
@@ -292,6 +301,62 @@ export function useMapEditor(mapId: string | null, onToast: (message: string) =>
           return updateNode(m, id, { collapsed: !node.collapsed });
         }),
       setLayout: (layout: MindMap["layout"]) => apply((m) => ({ ...m, layout })),
+      setStyle: (patch: Partial<MapStyle>) => apply((m) => ({ ...m, style: { ...(m.style ?? {}), ...patch } })),
+      setMapMeta: (patch: Partial<Pick<MindMap, "folder" | "favorite">>) => apply((m) => ({ ...m, ...patch })),
+      toggleTask: (id: string) =>
+        apply((m) => {
+          const node = findNode(m.root, id);
+          if (!node) return m;
+          const next = node.task === "done" ? "todo" : "done";
+          if (next === "done") navigator.vibrate?.(12);
+          return updateNode(m, id, { task: next });
+        }),
+      addParent: (id: string, text = "New topic") => {
+        let createdId: string | null = null;
+        apply((m) => {
+          const r = addParent(m, id, { text });
+          createdId = r.created.id;
+          return r.map;
+        });
+        if (createdId) {
+          setSelectedId(createdId);
+          setEditingId(createdId);
+        }
+      },
+      indent: (id: string) => apply((m) => indentNode(m, id)),
+      outdent: (id: string) => apply((m) => outdentNode(m, id)),
+      copy: (id: string) => {
+        const node = mapRef.current && findNode(mapRef.current.root, id);
+        if (node) clipboard = cloneSubtree(node);
+        return Boolean(node);
+      },
+      cut: (id: string) => {
+        const current = mapRef.current;
+        if (!current || id === current.root.id) return false;
+        const node = findNode(current.root, id);
+        if (!node) return false;
+        clipboard = cloneSubtree(node);
+        const parent = findParent(current.root, id);
+        apply((m) => deleteNode(m, id));
+        setSelectedId(parent?.id ?? current.root.id);
+        return true;
+      },
+      paste: (parentId: string) => {
+        if (!clipboard) return false;
+        let createdId: string | null = null;
+        const sub = clipboard;
+        apply((m) => {
+          const r = pasteSubtree(m, parentId, sub);
+          createdId = r.created.id;
+          return r.map;
+        });
+        if (createdId) setSelectedId(createdId);
+        return true;
+      },
+      canPaste: () => clipboard !== null,
+      /** Add a whole parsed outline under a node (paste Markdown). */
+      addOutline: (parentId: string, nodes: Parameters<typeof addChildren>[2]) =>
+        apply((m) => addChildren(m, parentId, nodes).map),
       setTheme: (theme: string) => apply((m) => ({ ...m, theme })),
       rename: (title: string) => apply((m) => updateNode({ ...m, title }, m.root.id, { text: title })),
       replaceMap: (next: MindMap) => apply(() => next),

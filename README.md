@@ -91,28 +91,49 @@ docker run -d -p 8787:8787 -v mindflow-data:/data -e APP_PASSWORD=change-me -e A
 
 ## Features
 
-**Editor**
-- Infinite canvas: scroll to pan, `Ctrl`/`⌘` + scroll to zoom, double-click empty space to fit
-- Three layouts: balanced mind map, logic chart (right), org chart (down)
-- Six colour themes, per-branch colours, emoji markers, notes, links
-- Keyboard-first editing: `Tab` child, `Enter` sibling, `F2` or just type to rename,
-  `Delete`, `Space` collapse, arrows to navigate, `Ctrl+↑/↓` reorder, `Ctrl+Z/Y` undo/redo,
-  `Ctrl+K` toggle the assistant, `Ctrl+0` fit
-- Drag a node onto another node to re-parent it
-- Collapse/expand branches with hidden-count badges
-- Multiple maps, autosave, live sync across tabs
-- Import markdown outlines or `.mindflow.json`; export PNG, Markdown, JSON
+Designed for students, inspired by XMind and NiceMind, with no ads, no watermarks and
+every export free.
 
-**Claude assistant (in-app)**
-- Streams responses and shows each tool call as it runs
-- Quick actions: expand the selected node, brainstorm branches, find gaps, summarise, reorganise
-- "Let Claude generate the first draft" when creating a map
+**Library**
+- Subject folders, favorites, a "Progress" view for maps with checkboxes
+- Live map previews on every card, search across every topic, sort, grid or list view
+- Create sheet: blank map, AI generation, from Markdown / notes, import file
 
-**MCP server**
-- Tools: `list_mindmaps`, `get_mindmap`, `create_mindmap`, `add_nodes`, `update_node`,
-  `delete_nodes`, `move_node`, `replace_branch`, `search_nodes`, `set_map_options`, `delete_mindmap`
-- Resources: `mindmap://{mapId}` (markdown outline with node ids)
-- Prompts: `brainstorm`, `review-map`
+**Make maps fast**
+- 9 structures: two-way, one-way (right / left), org chart, tree chart, timeline,
+  fishbone, center divergence (radial), brace map
+- 12 study templates: chapter notes, exam revision plan, answer / essay plan, current
+  affairs, cause & effect, history timeline, compare & contrast, book / lecture summary,
+  SWOT, formula sheet, weekly study plan, research plan
+- **Paste Markdown** (from ChatGPT, Notion, Obsidian…) with a live preview: headings,
+  bullets, checkboxes, bold, links, emoji and notes are all understood. Pasting text on
+  the canvas adds it under the selected topic
+- **Outline mode** (Workflowy-style list: Enter, Tab, Shift+Tab) and a raw Markdown editor
+- ✨ **AI generation** with Claude: quick, detailed or exam-ready maps, or turn your own
+  notes into a map; expand or explain any topic
+
+**Style**
+- 12 themes (Classic, Charcoal, Ocean, Forest, Sunset, Candy, Pastel, Bold, Mono,
+  Notebook, Blueprint, Night, Neon), curved / elbow / straight branches, five topic
+  shapes, spacing, rainbow branches
+- Per topic: text size, bold, italic, text colour, fill, branch colour, priority 1-6,
+  checkbox with progress %, 150+ stickers, images, notes, links
+
+**Study**
+- Presentation mode (reveals the map branch by branch)
+- Quiz mode (topics hidden as "?" cards, tap to recall)
+- Flashcards generated from the map, with "Again" / "Got it" and a score
+- Checkbox progress on topics and maps, with a celebration when you finish
+
+**Export & import**
+- Export: PNG, JPEG, PDF (A4), SVG, HTML (map + collapsible outline), Markdown, text,
+  OPML, XMind, MindFlow JSON; copy as Markdown; share image
+- Import: XMind (.xmind), OPML, FreeMind (.mm), Markdown / text, MindFlow JSON and
+  full backups; "Back up all maps" in one file
+
+**Everywhere**
+- Laptop web app (installable), standalone Android app (works offline, no server),
+  MCP server for Claude Desktop / Claude Code, light and dark mode, keyboard shortcuts
 
 ## Quick start
 
@@ -214,6 +235,8 @@ server/src/index.ts    Express: REST, SSE, /mcp, static client
 client/src/            React app (canvas, layout engine, panels, export)
 android/               standalone Android app (bundled web app + on-device storage)
 shared/src/tools.ts    map tools used by MCP, the server assistant and the phone assistant
+client/src/layout.ts   layout engine for all 9 structures
+client/src/export/     SVG renderer, PNG/JPEG/PDF/HTML/OPML/XMind export, importers
 shared/src/assistant.ts Claude tool loop (server and phone)
 ```
 

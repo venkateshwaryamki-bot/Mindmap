@@ -118,12 +118,13 @@ export function AIPanel({ map, selectedNode, actions, health, onClose, autoPromp
   };
 
   useEffect(() => {
-    if (autoPrompt && !busy) {
-      onAutoPromptConsumed?.();
-      void send(autoPrompt);
-    }
+    if (!autoPrompt || busy || health === null) return;
+    onAutoPromptConsumed?.();
+    // Without Claude configured yet, keep the request in the box until a key is added.
+    if (!health.ai) setInput(autoPrompt);
+    else void send(autoPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPrompt]);
+  }, [autoPrompt, health]);
 
   const quick = selectedNode && selectedNode.id !== map.root.id
     ? [
