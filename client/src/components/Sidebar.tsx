@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { androidBridge } from "../export";
 import type { MapSummary } from "@shared/model";
 
 interface Props {
@@ -78,6 +79,11 @@ export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete,
             ⬇ Install app
           </button>
         )}
+        {/Android/i.test(navigator.userAgent) && !androidBridge() && (
+          <a className="install-btn apk-link" href="/MindFlow.apk" download>
+            🤖 Get the Android app (APK)
+          </a>
+        )}
         {install?.iosHint && (
           <div className="install-hint">
             To install on iPhone/iPad: tap <b>Share</b> then <b>Add to Home Screen</b>.
@@ -87,6 +93,11 @@ export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete,
           <span title="MCP endpoint for Claude Desktop / Claude Code">
             MCP: <code>/mcp</code>
           </span>
+          {androidBridge() && (
+            <button type="button" className="link" onClick={() => androidBridge()?.changeServer()}>
+              Change server
+            </button>
+          )}
           {onSignOut && (
             <button type="button" className="link" onClick={onSignOut}>
               Sign out

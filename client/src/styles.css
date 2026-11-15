@@ -816,6 +816,14 @@ code {
   border-color: #3b4a7a;
   color: #c7d2fe;
 }
+a.apk-link {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #3b4a7a;
+}
 .install-hint {
   font-size: 12px;
   color: var(--muted);

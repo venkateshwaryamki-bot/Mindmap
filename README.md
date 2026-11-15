@@ -20,52 +20,60 @@ in-app assistant and over MCP (Streamable HTTP and stdio) for any MCP client.
 
 ## Use it on your laptop and phone
 
-MindFlow is an installable web app (PWA). Once it is running somewhere, you open it in
-a browser and "install" it, and it gets its own icon and window like a native app on
-Windows, macOS, Android and iPhone. Pick one of these setups.
+Your maps live on a MindFlow **server**. The laptop app, the Android app and any
+browser all connect to the same server, so they always show the same maps.
 
-### Option A: host it once, use it everywhere (recommended)
+### 1. Laptop (Windows, macOS, Linux)
 
-Your maps live on one server, so your laptop and phone always show the same maps,
-from anywhere.
+1. Install **Node.js LTS** from <https://nodejs.org> (one time).
+2. Download this repo: on GitHub click **Code → Download ZIP**, then unzip it
+   (or `git clone https://github.com/venkateshwaryamki-bot/Mindmap.git`).
+3. Start MindFlow:
+   - **Windows:** double-click `start-mindflow.bat`
+   - **macOS:** double-click `start-mindflow.command` (first time: right-click → Open)
+   - **Any system:** in a terminal in the folder, run `npm install` once, then `npm run app`
+4. Your browser opens <http://localhost:8787>. Keep the black window open while you work.
+5. Make it a real app: click **Install app** at the bottom of the map list (Chrome or
+   Edge), or the install icon at the right of the address bar. MindFlow then has its own
+   icon in the Start menu / Dock and opens in its own window.
 
-1. Fork or use this repo on GitHub.
-2. On [Render](https://render.com), choose **New → Blueprint** and select this repo.
+To use the Claude assistant, open the `.env` file in the folder and paste your key after
+`ANTHROPIC_API_KEY=`, then restart MindFlow.
+
+### 2. Android phone (APK)
+
+1. On the laptop, MindFlow prints a line like `On your Wi-Fi  http://192.168.1.20:8787`.
+2. On the phone, connected to the **same Wi-Fi**, open that address in Chrome and tap
+   **🤖 Get the Android app (APK)** in the ☰ map list. You can also download
+   `client/public/MindFlow.apk` from this repo.
+3. Open the downloaded file. If Android asks, allow **Install unknown apps** for
+   Chrome or your Files app, then tap **Install**.
+4. Open **MindFlow**, type the Wi-Fi address from step 1 (e.g. `192.168.1.20:8787`)
+   and tap **Connect**. The app remembers it.
+
+The laptop must be on, with MindFlow running, for the phone to reach it. If the phone
+cannot connect, allow Node.js through the laptop's firewall on **private networks**
+(Windows asks the first time MindFlow starts).
+
+On iPhone, open the Wi-Fi address in Safari and use **Share → Add to Home Screen**.
+
+### 3. Use it from anywhere (optional hosting)
+
+To reach your maps away from home Wi-Fi, host MindFlow once and point the laptop browser
+and the Android app at its `https://` address instead.
+
+1. On [Render](https://render.com), choose **New → Blueprint** and select this repo.
    It reads `render.yaml` (a Docker web service with a 1 GB disk for your maps).
-3. When asked, set `APP_PASSWORD` (required, protects your maps) and
-   `ANTHROPIC_API_KEY` (for the Claude assistant).
-4. Open the `https://…onrender.com` address it gives you and sign in.
+2. Set `APP_PASSWORD` (required, protects your maps) and `ANTHROPIC_API_KEY`.
+3. Open the `https://…onrender.com` address, sign in, and install as above. In the
+   Android app use ☰ → **Change server** to switch to it.
 
-Any host that runs Docker works too (Railway, Fly.io, a VPS). Mount a volume at
-`/data` so maps survive restarts:
+Any Docker host works too; mount a volume at `/data` so maps survive restarts:
 
 ```bash
 docker build -t mindflow .
 docker run -d -p 8787:8787 -v mindflow-data:/data -e APP_PASSWORD=change-me -e ANTHROPIC_API_KEY=sk-ant-... mindflow
 ```
-
-### Option B: run it on your laptop, open it on your phone over Wi-Fi
-
-```bash
-npm install
-npm run app
-```
-
-The server prints an address like `http://192.168.1.20:8787` under **On your Wi-Fi**.
-Open that on your phone while it is on the same Wi-Fi. Your laptop must be on for the
-phone to reach it. Set `APP_PASSWORD` in `.env` if other people share your network.
-
-Browsers only allow full app install (offline start, own window) over `https://` or
-on `localhost`. Over plain Wi-Fi addresses the phone can still add a home-screen
-shortcut; for the full app use Option A.
-
-### Install the app
-
-| Device | How |
-|---|---|
-| Laptop (Chrome or Edge) | Click **Install app** at the bottom of the map list, or the install icon in the address bar |
-| Android (Chrome) | Tap **Install app** in the map list, or ⋮ → **Install app** |
-| iPhone / iPad (Safari) | Tap **Share** → **Add to Home Screen** |
 
 ### Using it on a phone
 
@@ -74,6 +82,8 @@ shortcut; for the full app use Option A.
   opens details, deletes, and opens Claude.
 - Double-tap a node to rename it. Press and hold a node, then drag, to move it.
 - ☰ opens your maps; ⋯ shows layout, theme, zoom and export.
+- In the Android app, exports are saved to your **Downloads** folder and Back closes
+  open panels.
 
 ## Features
 
@@ -199,6 +209,7 @@ server/src/mcp-stdio.ts stdio entry point
 server/src/ai.ts       streaming Claude tool loop for the in-app assistant
 server/src/index.ts    Express: REST, SSE, /mcp, static client
 client/src/            React app (canvas, layout engine, panels, export)
+android/               Android app (WebView shell + bridge), see android/README.md
 ```
 
 ## Scripts

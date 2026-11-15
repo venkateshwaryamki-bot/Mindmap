@@ -3,8 +3,31 @@ import { toOutline } from "@shared/model";
 import type { LayoutResult } from "./layout";
 import type { Theme } from "./themes";
 
+interface AndroidBridge {
+  saveFile: (name: string, base64: string, mime: string) => void;
+  copyText: (text: string) => void;
+  changeServer: () => void;
+  server: () => string;
+}
+
+/** Present when running inside the MindFlow Android app. */
+export function androidBridge(): AndroidBridge | undefined {
+  return (window as unknown as { MindFlowAndroid?: AndroidBridge }).MindFlowAndroid;
+}
+
 export function download(filename: string, data: Blob | string, type = "text/plain") {
   const blob = typeof data === "string" ? new Blob([data], { type }) : data;
+  const android = androidBridge();
+  if (android) {
+    // Android WebView cannot follow blob: download links, so hand the bytes to the app.
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      android.saveFile(filename, result.slice(result.indexOf(",") + 1), blob.type || type);
+    };
+    reader.readAsDataURL(blob);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -26,7 +49,10 @@ export function exportJson(map: MindMap) {
 }
 
 export async function copyOutline(map: MindMap) {
-  await navigator.clipboard.writeText(toOutline(map.root, { withNotes: true }));
+  const text = toOutline(map.root, { withNotes: true });
+  const android = androidBridge();
+  if (android) android.copyText(text);
+  else await navigator.clipboard.writeText(text);
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

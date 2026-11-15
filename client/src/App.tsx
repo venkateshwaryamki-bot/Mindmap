@@ -359,6 +359,37 @@ export default function App() {
     }
   };
 
+  // Android back button: close whatever is open before leaving the app.
+  useEffect(() => {
+    const w = window as unknown as { mindflowBack?: () => boolean };
+    w.mindflowBack = () => {
+      if (dialogOpen) {
+        setDialogOpen(false);
+        return true;
+      }
+      if (drawerOpen) {
+        setDrawerOpen(false);
+        return true;
+      }
+      if (aiOpen) {
+        setAiOpen(false);
+        return true;
+      }
+      if (inspectorOpen) {
+        setInspectorOpen(false);
+        return true;
+      }
+      if (state.editingId) {
+        actions.stopEditing();
+        return true;
+      }
+      return false;
+    };
+    return () => {
+      delete w.mindflowBack;
+    };
+  }, [dialogOpen, drawerOpen, aiOpen, inspectorOpen, state.editingId, actions, setAiOpen, setInspectorOpen]);
+
   if (authState === "checking") return <div className="splash" />;
   if (authState === "required") return <LoginScreen onSignedIn={() => setAuthState("ok")} />;
 

@@ -1,0 +1,41 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "app.mindflow"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "app.mindflow"
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            // Provide a keystore through environment variables (see android/README.md).
+            def ks = System.getenv("MINDFLOW_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("MINDFLOW_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("MINDFLOW_KEY_ALIAS") ?: "mindflow"
+                keyPassword System.getenv("MINDFLOW_KEY_PASSWORD") ?: System.getenv("MINDFLOW_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv("MINDFLOW_KEYSTORE") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
