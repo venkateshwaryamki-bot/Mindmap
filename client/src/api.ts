@@ -1,6 +1,10 @@
 import type { MapSummary, MindMap } from "@shared/model";
 
+/** Fired when the server says the user must sign in (APP_PASSWORD is set). */
+export const AUTH_REQUIRED_EVENT = "mindflow:auth-required";
+
 async function json<T>(res: Response): Promise<T> {
+  if (res.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -24,11 +28,18 @@ export class ApiError extends Error {
 export interface Health {
   ok: boolean;
   ai: boolean;
+  auth?: boolean;
   model: string;
   mcp: { http: string; tools: string[] };
 }
 
 export const api = {
+  session: () => fetch("/api/session").then((r) => json<{ required: boolean; signedIn: boolean }>(r)),
+  login: (password: string) =>
+    fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }).then(
+      (r) => json<{ ok: boolean }>(r),
+    ),
+  logout: () => fetch("/api/logout", { method: "POST" }).then((r) => json<{ ok: boolean }>(r)),
   health: () => fetch("/api/health").then((r) => json<Health>(r)),
   listMaps: () => fetch("/api/maps").then((r) => json<MapSummary[]>(r)),
   getMap: (id: string) => fetch(`/api/maps/${id}`).then((r) => json<MindMap>(r)),
@@ -70,6 +81,7 @@ export async function streamChat(
     body: JSON.stringify(body),
     signal,
   });
+  if (res.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   if (!res.ok || !res.body) {
     let message = `Request failed (${res.status})`;
     try {

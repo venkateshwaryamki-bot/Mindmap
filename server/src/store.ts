@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import {
@@ -104,6 +104,53 @@ export class MapStore {
     this.maps.delete(id);
     await fs.rm(this.filePath(id), { force: true });
     this.emitter.emit("event", { type: "map.deleted", id } satisfies StoreEvent);
+  }
+
+  /**
+   * Watch the data directory for maps written by another process (e.g. the
+   * stdio MCP server used by Claude Desktop) and broadcast them as updates.
+   */
+  watch(): FSWatcher | undefined {
+    const timers = new Map<string, NodeJS.Timeout>();
+    try {
+      return fsWatch(this.dataDir, (_event, file) => {
+        if (!file || !file.endsWith(".json")) return;
+        clearTimeout(timers.get(file));
+        timers.set(
+          file,
+          setTimeout(() => {
+            timers.delete(file);
+            void this.reloadFile(file);
+          }, 120),
+        );
+      });
+    } catch (error) {
+      console.warn("[store] file watching unavailable:", (error as Error).message);
+      return undefined;
+    }
+  }
+
+  private async reloadFile(file: string): Promise<void> {
+    const id = file.replace(/\.json$/, "");
+    let raw: string;
+    try {
+      raw = await fs.readFile(path.join(this.dataDir, file), "utf8");
+    } catch {
+      if (this.maps.has(id)) {
+        this.maps.delete(id);
+        this.emitter.emit("event", { type: "map.deleted", id } satisfies StoreEvent);
+      }
+      return;
+    }
+    try {
+      const map = normalizeMap(JSON.parse(raw));
+      const current = this.maps.get(map.id);
+      if (current && current.version >= map.version) return; // our own write, or stale
+      this.maps.set(map.id, map);
+      this.emitter.emit("event", { type: current ? "map.updated" : "map.created", map } satisfies StoreEvent);
+    } catch {
+      /* partially written file; the next change event will retry */
+    }
   }
 
   subscribe(listener: (event: StoreEvent) => void): () => void {

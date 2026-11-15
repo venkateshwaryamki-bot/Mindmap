@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { Placed } from "../layout";
 import type { Theme } from "../themes";
 
@@ -42,7 +42,8 @@ export function NodeView({
     onMeasure(node.id, rect.w, rect.h);
   });
 
-  useEffect(() => {
+  // Layout effect so focus happens inside the tap/click gesture (needed for the iOS keyboard).
+  useLayoutEffect(() => {
     if (!editing) return;
     const el = editRef.current;
     if (!el) return;

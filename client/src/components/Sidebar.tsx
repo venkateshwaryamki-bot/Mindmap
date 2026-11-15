@@ -9,16 +9,25 @@ interface Props {
   onNew: () => void;
   onDelete: (id: string) => void;
   onImport: (file: File) => void;
+  open?: boolean;
+  onClose?: () => void;
+  install?: { canInstall: boolean; iosHint: boolean; onInstall: () => void };
+  onSignOut?: () => void;
 }
 
-export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete, onImport }: Props) {
+export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete, onImport, open, onClose, install, onSignOut }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${open ? " open" : ""}`}>
       <div className="brand">
         <span className="brand-mark" />
         <span>MindFlow</span>
         <span className={`live-dot${connected ? " on" : ""}`} title={connected ? "Live sync connected" : "Live sync offline"} />
+        {onClose && (
+          <button type="button" className="icon drawer-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        )}
       </div>
       <div className="sidebar-actions">
         <button type="button" className="primary" onClick={onNew}>
@@ -64,9 +73,26 @@ export function Sidebar({ maps, currentId, connected, onSelect, onNew, onDelete,
         {maps.length === 0 && <li className="empty">No maps yet</li>}
       </ul>
       <div className="sidebar-foot">
-        <a href="/mcp" onClick={(e) => e.preventDefault()} title="MCP endpoint for Claude Desktop / Claude Code">
-          MCP: <code>/mcp</code>
-        </a>
+        {install?.canInstall && (
+          <button type="button" className="install-btn" onClick={install.onInstall}>
+            ⬇ Install app
+          </button>
+        )}
+        {install?.iosHint && (
+          <div className="install-hint">
+            To install on iPhone/iPad: tap <b>Share</b> then <b>Add to Home Screen</b>.
+          </div>
+        )}
+        <div className="foot-row">
+          <span title="MCP endpoint for Claude Desktop / Claude Code">
+            MCP: <code>/mcp</code>
+          </span>
+          {onSignOut && (
+            <button type="button" className="link" onClick={onSignOut}>
+              Sign out
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );

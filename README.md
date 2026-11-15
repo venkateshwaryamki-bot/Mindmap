@@ -18,6 +18,63 @@ Every edit, wherever it comes from, appears live on the canvas.
 One tool registry (`server/src/tools.ts`) is exposed twice: to the Claude API for the
 in-app assistant and over MCP (Streamable HTTP and stdio) for any MCP client.
 
+## Use it on your laptop and phone
+
+MindFlow is an installable web app (PWA). Once it is running somewhere, you open it in
+a browser and "install" it, and it gets its own icon and window like a native app on
+Windows, macOS, Android and iPhone. Pick one of these setups.
+
+### Option A: host it once, use it everywhere (recommended)
+
+Your maps live on one server, so your laptop and phone always show the same maps,
+from anywhere.
+
+1. Fork or use this repo on GitHub.
+2. On [Render](https://render.com), choose **New → Blueprint** and select this repo.
+   It reads `render.yaml` (a Docker web service with a 1 GB disk for your maps).
+3. When asked, set `APP_PASSWORD` (required, protects your maps) and
+   `ANTHROPIC_API_KEY` (for the Claude assistant).
+4. Open the `https://…onrender.com` address it gives you and sign in.
+
+Any host that runs Docker works too (Railway, Fly.io, a VPS). Mount a volume at
+`/data` so maps survive restarts:
+
+```bash
+docker build -t mindflow .
+docker run -d -p 8787:8787 -v mindflow-data:/data -e APP_PASSWORD=change-me -e ANTHROPIC_API_KEY=sk-ant-... mindflow
+```
+
+### Option B: run it on your laptop, open it on your phone over Wi-Fi
+
+```bash
+npm install
+npm run app
+```
+
+The server prints an address like `http://192.168.1.20:8787` under **On your Wi-Fi**.
+Open that on your phone while it is on the same Wi-Fi. Your laptop must be on for the
+phone to reach it. Set `APP_PASSWORD` in `.env` if other people share your network.
+
+Browsers only allow full app install (offline start, own window) over `https://` or
+on `localhost`. Over plain Wi-Fi addresses the phone can still add a home-screen
+shortcut; for the full app use Option A.
+
+### Install the app
+
+| Device | How |
+|---|---|
+| Laptop (Chrome or Edge) | Click **Install app** at the bottom of the map list, or the install icon in the address bar |
+| Android (Chrome) | Tap **Install app** in the map list, or ⋮ → **Install app** |
+| iPhone / iPad (Safari) | Tap **Share** → **Add to Home Screen** |
+
+### Using it on a phone
+
+- One finger pans, two fingers pinch to zoom.
+- Tap a node to select it; the bar at the bottom adds children and siblings, renames,
+  opens details, deletes, and opens Claude.
+- Double-tap a node to rename it. Press and hold a node, then drag, to move it.
+- ☰ opens your maps; ⋯ shows layout, theme, zoom and export.
+
 ## Features
 
 **Editor**
@@ -97,6 +154,11 @@ pushes changes to open browser tabs, so edits made from Claude Desktop appear li
 ### Any other MCP client
 
 - Streamable HTTP: `POST http://localhost:8787/mcp` (stateless; no session header needed)
+- When `APP_PASSWORD` or `MCP_TOKEN` is set, send `Authorization: Bearer <token>`:
+
+```bash
+claude mcp add --transport http mindflow https://your-app.onrender.com/mcp --header "Authorization: Bearer YOUR_TOKEN"
+```
 - stdio: `npm run mcp`
 
 ## How Claude edits a map
@@ -120,7 +182,10 @@ through the versioned store, which broadcasts server-sent events to every open t
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Model for the assistant |
 | `CLAUDE_EFFORT` | `medium` | `low` … `max` reasoning effort |
 | `CLAUDE_FALLBACKS` | `on` | Server-side refusal fallbacks (`off` to disable) |
+| `APP_PASSWORD` | – | Require a password for the web app (set this when hosting) |
+| `MCP_TOKEN` | `APP_PASSWORD` | Bearer token MCP clients must send |
 | `PORT` | `8787` | Server port |
+| `HOST` | `0.0.0.0` | `127.0.0.1` to block other devices on your network |
 | `MINDFLOW_DATA_DIR` | `./data/maps` | Where maps are stored |
 
 ## Project layout
@@ -140,6 +205,7 @@ client/src/            React app (canvas, layout engine, panels, export)
 
 | Command | What it does |
 |---|---|
+| `npm run app` | Build and start the app (easiest way to run it) |
 | `npm run dev` | Server + client with hot reload |
 | `npm run build` | Build the client, type-check the server |
 | `npm start` | Production server |

@@ -216,7 +216,7 @@ export function useMapEditor(mapId: string | null, onToast: (message: string) =>
     const handler = () => {
       if (dirty.current && mapRef.current) {
         navigator.sendBeacon?.(
-          `/api/maps/${mapRef.current.id}`,
+          `/api/maps/${mapRef.current.id}/beacon`,
           new Blob([JSON.stringify({ map: mapRef.current })], { type: "application/json" }),
         );
       }

@@ -160,48 +160,133 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // ---- pointer: pan background / drag node --------------------------------
+  // ---- pointer: pan background / drag node / pinch zoom -------------------
+  //
+  // Mouse: drag background to pan, drag a node onto another to move it.
+  // Touch: one finger pans (also when it starts on a node), two fingers pinch-zoom,
+  //        double-tap a node to rename, long-press a node then drag to move it.
   const pointer = useRef<{
     kind: "pan" | "node";
     id?: string;
+    touch: boolean;
     startX: number;
     startY: number;
     viewX: number;
     viewY: number;
     moved: boolean;
+    /** Touch only: long-press elapsed, node drag is armed. */
+    armed: boolean;
   } | null>(null);
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; midX: number; midY: number; view: View } | null>(null);
+  const longPress = useRef<number | undefined>(undefined);
+  const lastTap = useRef<{ id: string; time: number } | null>(null);
+
+  const clearLongPress = () => {
+    window.clearTimeout(longPress.current);
+    longPress.current = undefined;
+  };
+
+  const startPinch = () => {
+    const pts = [...touches.current.values()];
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    const rect = containerRef.current!.getBoundingClientRect();
+    pinch.current = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      midX: (a.x + b.x) / 2 - rect.left,
+      midY: (a.y + b.y) / 2 - rect.top,
+      view: viewState.current,
+    };
+    // A second finger cancels any pan / node drag in progress.
+    pointer.current = null;
+    clearLongPress();
+    setDrag(null);
+  };
+
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.current.size === 2) startPinch();
+  };
 
   const onBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (pinch.current) return;
     if (e.button !== 0 && e.button !== 1) return;
     if ((e.target as HTMLElement).closest("[data-node-id]")) return;
-    pointer.current = { kind: "pan", startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y, moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    pointer.current = {
+      kind: "pan",
+      touch: e.pointerType === "touch",
+      startX: e.clientX,
+      startY: e.clientY,
+      viewX: view.x,
+      viewY: view.y,
+      moved: false,
+      armed: false,
+    };
+    containerRef.current?.setPointerCapture(e.pointerId);
   };
 
   const onNodePointerDown = (e: React.PointerEvent, id: string) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (pinch.current) return;
     actions.select(id);
     if (editingId && editingId !== id) actions.stopEditing();
-    pointer.current = { kind: "node", id, startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y, moved: false };
+    const touch = e.pointerType === "touch";
+    pointer.current = { kind: "node", id, touch, startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y, moved: false, armed: !touch };
     containerRef.current?.setPointerCapture(e.pointerId);
+    if (touch && id !== map.root.id) {
+      clearLongPress();
+      longPress.current = window.setTimeout(() => {
+        const p = pointer.current;
+        if (!p || p.id !== id || p.moved) return;
+        p.armed = true;
+        navigator.vibrate?.(15);
+        setDrag({ id, x: p.startX, y: p.startY, target: null });
+      }, 420);
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch" && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pz = pinch.current;
+      if (pz && touches.current.size >= 2) {
+        const [a, b] = [...touches.current.values()];
+        const rect = containerRef.current!.getBoundingClientRect();
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const midX = (a.x + b.x) / 2 - rect.left;
+        const midY = (a.y + b.y) / 2 - rect.top;
+        const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pz.view.scale * (dist / pz.dist)));
+        // Keep the world point that was under the starting midpoint under the fingers.
+        const wx = (pz.midX - pz.view.x) / pz.view.scale;
+        const wy = (pz.midY - pz.view.y) / pz.view.scale;
+        setView({ scale, x: midX - wx * scale, y: midY - wy * scale });
+        return;
+      }
+    }
     const p = pointer.current;
     if (!p) return;
     const dx = e.clientX - p.startX;
     const dy = e.clientY - p.startY;
+    const distance = Math.abs(dx) + Math.abs(dy);
+
+    // Touch on a node without a long-press: treat the gesture as a pan.
+    if (p.kind === "node" && p.touch && !p.armed && distance > 8) {
+      clearLongPress();
+      p.kind = "pan";
+    }
     if (p.kind === "pan") {
-      if (Math.abs(dx) + Math.abs(dy) > 2) p.moved = true;
+      if (distance > 3) p.moved = true;
       setView((v) => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }));
       return;
     }
-    if (!p.moved && Math.abs(dx) + Math.abs(dy) > 6) {
+    if (!p.moved && distance > 6) {
       if (p.id === map.root.id) return; // root cannot be moved
       p.moved = true;
     }
-    if (p.moved && p.id) {
+    if (p.id && p.armed && (p.moved || p.touch)) {
       const under = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-node-id]") as HTMLElement | null;
       let target = under?.dataset.nodeId ?? null;
       if (target && (target === p.id || isDescendant(map.root, p.id, target))) target = null;
@@ -210,10 +295,18 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      touches.current.delete(e.pointerId);
+      if (pinch.current) {
+        if (touches.current.size < 2) pinch.current = null;
+        return;
+      }
+    }
+    clearLongPress();
     const p = pointer.current;
     pointer.current = null;
     try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      containerRef.current?.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
@@ -227,6 +320,15 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
     }
     if (p.moved && drag?.target && p.id) {
       actions.moveNode(p.id, drag.target);
+    } else if (p.touch && !p.moved && !p.armed && p.id) {
+      // Double-tap to rename (browsers do not reliably fire dblclick for touch).
+      const now = Date.now();
+      if (lastTap.current && lastTap.current.id === p.id && now - lastTap.current.time < 350) {
+        lastTap.current = null;
+        actions.startEditing(p.id);
+      } else {
+        lastTap.current = { id: p.id, time: now };
+      }
     }
     setDrag(null);
   };
@@ -238,6 +340,7 @@ export function Canvas({ map, theme, selectedId, editingId, actions, onLayout, v
       ref={containerRef}
       className={`canvas${theme.dark ? " dark" : ""}${drag ? " dragging" : ""}`}
       style={{ background: theme.canvas, backgroundImage: `radial-gradient(${theme.dots} 1px, transparent 1px)`, backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
+      onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

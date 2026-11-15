@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MapSummary } from "@shared/model";
 import { findParent } from "@shared/model";
-import { api, type Health, subscribeEvents } from "./api";
+import { AUTH_REQUIRED_EVENT, api, type Health, subscribeEvents } from "./api";
+import { LoginScreen } from "./components/LoginScreen";
+import { NodeActionBar } from "./components/NodeActionBar";
+import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
+import { useInstallPrompt } from "./useInstallPrompt";
 import { Canvas, type CanvasHandle } from "./components/Canvas";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
@@ -21,11 +25,41 @@ const LAST_MAP_KEY = "mindflow:lastMap";
 
 export default function App() {
   const [maps, setMaps] = useState<MapSummary[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(() => localStorage.getItem(LAST_MAP_KEY));
+  const [currentId, setCurrentId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(LAST_MAP_KEY);
+    } catch {
+      return null;
+    }
+  });
   const [health, setHealth] = useState<Health | null>(null);
   const [connected, setConnected] = useState(false);
-  const [aiOpen, setAiOpen] = useState(true);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const isMobile = useMediaQuery(MOBILE_QUERY);
+  const [authState, setAuthState] = useState<"checking" | "required" | "ok">("checking");
+  const [authRequired, setAuthRequired] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const install = useInstallPrompt();
+  const [aiOpen, setAiOpenRaw] = useState(() => !window.matchMedia(MOBILE_QUERY).matches);
+  const [inspectorOpen, setInspectorOpenRaw] = useState(false);
+  // On phones the panels are bottom sheets, so only one is open at a time.
+  const setAiOpen = useCallback(
+    (next: boolean | ((v: boolean) => boolean)) =>
+      setAiOpenRaw((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        if (value && window.matchMedia(MOBILE_QUERY).matches) setInspectorOpenRaw(false);
+        return value;
+      }),
+    [],
+  );
+  const setInspectorOpen = useCallback(
+    (next: boolean | ((v: boolean) => boolean)) =>
+      setInspectorOpenRaw((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        if (value && window.matchMedia(MOBILE_QUERY).matches) setAiOpenRaw(false);
+        return value;
+      }),
+    [],
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [autoPrompt, setAutoPrompt] = useState<string | null>(null);
@@ -37,7 +71,22 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
-  const { state, selectedNode, actions } = useMapEditor(currentId, toast);
+  // Sign-in gate (only when the server has APP_PASSWORD set).
+  useEffect(() => {
+    api
+      .session()
+      .then((s) => {
+        setAuthRequired(s.required);
+        setAuthState(s.required && !s.signedIn ? "required" : "ok");
+      })
+      .catch(() => setAuthState("ok"));
+    const onAuthRequired = () => setAuthState("required");
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+  }, []);
+  const ready = authState === "ok";
+
+  const { state, selectedNode, actions } = useMapEditor(ready ? currentId : null, toast);
   const map = state.map;
   const theme = getTheme(map?.theme ?? "aurora");
 
@@ -54,19 +103,26 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
+    if (!ready) return;
     api.health().then(setHealth).catch(() => setHealth({ ok: false, ai: false, model: "", mcp: { http: "/mcp", tools: [] } }));
     void refreshMaps().then((list) => {
       setCurrentId((cur) => (cur && list.some((m) => m.id === cur) ? cur : list[0]?.id ?? null));
     });
-  }, [refreshMaps]);
+  }, [refreshMaps, ready]);
 
   useEffect(() => {
-    if (currentId) localStorage.setItem(LAST_MAP_KEY, currentId);
+    if (currentId)
+      try {
+        localStorage.setItem(LAST_MAP_KEY, currentId);
+      } catch {
+        /* private mode */
+      }
   }, [currentId]);
 
   // Live sync (edits from MCP clients / other tabs / the assistant)
   const applyRemote = actions.applyRemote;
   useEffect(() => {
+    if (!ready) return;
     return subscribeEvents((event) => {
       if (event.type === "map.updated") {
         applyRemote(event.map);
@@ -89,7 +145,7 @@ export default function App() {
         setCurrentId((cur) => (cur === event.id ? null : cur));
       }
     }, setConnected);
-  }, [applyRemote, refreshMaps]);
+  }, [applyRemote, refreshMaps, ready]);
 
   // When the current map disappears, fall back to the first one.
   useEffect(() => {
@@ -303,16 +359,38 @@ export default function App() {
     }
   };
 
+  if (authState === "checking") return <div className="splash" />;
+  if (authState === "required") return <LoginScreen onSignedIn={() => setAuthState("ok")} />;
+
+  const signOut = async () => {
+    await api.logout().catch(() => undefined);
+    setAuthState("required");
+  };
+
   return (
-    <div className={`app${theme.dark ? " dark-canvas" : ""}`}>
+    <div className={`app${theme.dark ? " dark-canvas" : ""}${isMobile ? " is-mobile" : ""}`}>
+      {isMobile && drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
       <Sidebar
         maps={maps}
         currentId={currentId}
         connected={connected}
-        onSelect={setCurrentId}
-        onNew={() => setDialogOpen(true)}
+        onSelect={(id) => {
+          setCurrentId(id);
+          setDrawerOpen(false);
+        }}
+        onNew={() => {
+          setDrawerOpen(false);
+          setDialogOpen(true);
+        }}
         onDelete={(id) => void deleteMap(id)}
-        onImport={(f) => void importFile(f)}
+        onImport={(f) => {
+          setDrawerOpen(false);
+          void importFile(f);
+        }}
+        open={drawerOpen}
+        onClose={isMobile ? () => setDrawerOpen(false) : undefined}
+        install={install}
+        onSignOut={authRequired ? () => void signOut() : undefined}
       />
       <main className="workspace">
         {map ? (
@@ -321,8 +399,10 @@ export default function App() {
               map={map}
               state={state}
               actions={actions}
+              isMobile={isMobile}
               aiOpen={aiOpen}
               inspectorOpen={inspectorOpen}
+              onOpenDrawer={() => setDrawerOpen(true)}
               onToggleAI={() => setAiOpen((v) => !v)}
               onToggleInspector={() => setInspectorOpen((v) => !v)}
               onFit={() => canvasRef.current?.fit()}
@@ -338,6 +418,15 @@ export default function App() {
                 actions={actions}
                 viewRef={canvasRef}
               />
+              {isMobile && !aiOpen && !inspectorOpen && (
+                <NodeActionBar
+                  map={map}
+                  node={selectedNode}
+                  actions={actions}
+                  onDetails={() => setInspectorOpen(true)}
+                  onClaude={() => setAiOpen(true)}
+                />
+              )}
               {inspectorOpen && selectedNode && (
                 <Inspector map={map} node={selectedNode} theme={theme} actions={actions} onClose={() => setInspectorOpen(false)} />
               )}
@@ -360,6 +449,11 @@ export default function App() {
               <p className="error">{state.error}</p>
             ) : (
               <>
+                {isMobile && (
+                  <button type="button" className="empty-menu" onClick={() => setDrawerOpen(true)}>
+                    ☰ Maps
+                  </button>
+                )}
                 <h1>MindFlow</h1>
                 <p>Create a map to get started, or connect an MCP client and ask Claude to build one.</p>
                 <button type="button" className="primary" onClick={() => setDialogOpen(true)}>

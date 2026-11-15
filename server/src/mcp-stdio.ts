@@ -20,6 +20,7 @@ dotenv.config({ path: path.resolve(here, "../../.env"), quiet: true });
 const dataDir = process.env.MINDFLOW_DATA_DIR ?? path.resolve(here, "../../data/maps");
 const store = new MapStore(dataDir);
 await store.load();
+store.watch(); // pick up edits made in the web app
 
 const server = createMcpServer(store);
 const transport = new StdioServerTransport();

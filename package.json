@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "description": "MindFlow - an XMind-style mind map app with a Claude-powered MCP backend",
-  "workspaces": ["server", "client"],
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "app": "npm run build -w client && npm start",
     "build": "npm run build -w client && npm run typecheck -w server",
     "start": "npm run start -w server",
     "mcp": "npm run mcp -w server",

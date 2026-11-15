@@ -1,0 +1,21 @@
+# One-click deploy on Render: https://render.com/deploy
+# The persistent disk keeps your maps across deploys (requires a paid instance type).
+services:
+  - type: web
+    name: mindflow
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: mindflow-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: APP_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MCP_TOKEN
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

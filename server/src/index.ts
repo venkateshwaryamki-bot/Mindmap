@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -18,16 +19,19 @@ import { MapStore, type StoreEvent } from "./store.ts";
 import { createMcpServer } from "./mcp.ts";
 import { MODEL, aiEnabled, runChat, type ChatRequest } from "./ai.ts";
 import { tools } from "./tools.ts";
+import { authEnabled, loginHandler, logoutHandler, requireMcpToken, requireSession, sessionStatus } from "./auth.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(here, "../../.env"), quiet: true });
 
 const PORT = Number(process.env.PORT ?? 8787);
+const HOST = process.env.HOST ?? "0.0.0.0";
 const DATA_DIR = process.env.MINDFLOW_DATA_DIR ?? path.resolve(here, "../../data/maps");
 const CLIENT_DIST = path.resolve(here, "../../client/dist");
 
 const store = new MapStore(DATA_DIR);
 await store.load();
+store.watch();
 
 if (store.list().length === 0) {
   await store.create(
@@ -73,7 +77,15 @@ if (store.list().length === 0) {
 
 const app = express();
 app.use(cors());
+app.set("trust proxy", true);
 app.use(express.json({ limit: "10mb" }));
+// sendBeacon (save on tab close) posts JSON as text/plain on some browsers
+app.use(express.text({ type: "text/plain", limit: "10mb" }));
+
+app.post("/api/login", loginHandler);
+app.post("/api/logout", logoutHandler);
+app.get("/api/session", (req, res) => res.json(sessionStatus(req)));
+app.use("/api", (req, res, next) => (req.path === "/health" ? next() : requireSession(req, res, next)));
 
 const asyncRoute =
   (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) =>
@@ -83,7 +95,7 @@ const asyncRoute =
 // REST API
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, ai: aiEnabled(), model: MODEL, mcp: { http: "/mcp", tools: tools.map((t) => t.name) } });
+  res.json({ ok: true, ai: aiEnabled(), model: MODEL, auth: authEnabled(), mcp: { http: "/mcp", tools: tools.map((t) => t.name) } });
 });
 
 app.get("/api/maps", (_req, res) => {
@@ -124,6 +136,19 @@ app.put(
     const incoming = normalizeMap(body.map);
     const saved = await store.update(req.params.id, () => incoming, body.expectedVersion);
     res.json(saved);
+  }),
+);
+
+// Fire-and-forget save used by navigator.sendBeacon when a tab closes.
+app.post(
+  "/api/maps/:id/beacon",
+  asyncRoute(async (req, res) => {
+    const body = typeof req.body === "string" ? (JSON.parse(req.body) as { map?: unknown }) : (req.body as { map?: unknown });
+    if (body?.map) {
+      const incoming = normalizeMap(body.map);
+      await store.update(req.params.id, () => incoming);
+    }
+    res.status(204).end();
   }),
 );
 
@@ -228,6 +253,7 @@ app.post("/api/ai/chat", (req, res) => {
 
 app.all(
   "/mcp",
+  requireMcpToken,
   asyncRoute(async (req, res) => {
     const server = createMcpServer(store);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -263,8 +289,22 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(PORT, () => {
+function lanAddresses(): string[] {
+  const out: string[] = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const addr of list ?? []) {
+      if (addr.family === "IPv4" && !addr.internal) out.push(addr.address);
+    }
+  }
+  return out;
+}
+
+app.listen(PORT, HOST, () => {
   console.log(`MindFlow server  http://localhost:${PORT}`);
+  if (HOST === "0.0.0.0") {
+    for (const ip of lanAddresses()) console.log(`  On your Wi-Fi  http://${ip}:${PORT}   (open this on your phone)`);
+  }
+  console.log(`  Password       ${authEnabled() ? "required (APP_PASSWORD is set)" : "off - set APP_PASSWORD before exposing to the internet"}`);
   console.log(`  REST API       http://localhost:${PORT}/api/maps`);
   console.log(`  MCP endpoint   http://localhost:${PORT}/mcp`);
   console.log(`  Claude         ${aiEnabled() ? `enabled (${MODEL})` : "disabled - set ANTHROPIC_API_KEY in .env"}`);
